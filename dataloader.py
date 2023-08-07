@@ -146,7 +146,27 @@ class MultimodalDataset(torch.utils.data.Dataset):
         print("DONE.")                    
         
         
+    def make_splits(self, ratios = [0.7, 0.1, 0.2]):
+        indices = np.argsort(np.array(self.timestamps))
+        n = len(indices)
+        edges = [0, int(ratios[0]*n), int((ratios[0]+ratios[1]),*n),n]
+        train_idx = indices[edges[0]:edges[1]]
+        val_idx = indices[edges[1]:edges[2]]
+        test_idx = indices[edges[2]:edges[3]]
+        print(len(train_idx))
+        print(len(val_idx))
+        print(len(test_idx))
+        return train_idx, val_idx, test_idx
+    
+    def __len__(self):
+        return len(self.text)
+    
+    def __getitem__(self, idx):
+        label = self.labels[idx]
+        video = self.video[idx]
+        audio = torch.tensor(self.audio[idx], dtype=torch.float)
+        text = torch.tensor(self.text.[idx], dtype=torch.float)
+        subclip_mask = torch.tensor(self.subclip_mask[idx], dtype=torch.bool)
         
+        return label, video, audio, text, subclip_mask
         
-dataset = MultimodalDataset(data_path="/home/jovyan/practical_ml")
-dataset.load_data()
