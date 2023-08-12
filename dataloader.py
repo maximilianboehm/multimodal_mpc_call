@@ -20,8 +20,8 @@ bank_target_dict = {'scripts_boc': "Canada.numbers", 'scripts_boe': "England.num
 
 def load_labels_df(path):
     doc = Document(path)
-    sheets = doc.sheets
-    tables = sheets[0].tables
+    sheets = doc.sheets()
+    tables = sheets[0].tables()
     rows = tables[0].rows(values_only=True)
     df = pd.DataFrame(rows).drop(columns=[0])
     df = df[1:]
@@ -149,7 +149,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
     def make_splits(self, ratios = [0.7, 0.1, 0.2]):
         indices = np.argsort(np.array(self.timestamps))
         n = len(indices)
-        edges = [0, int(ratios[0]*n), int((ratios[0]+ratios[1]),*n),n]
+        edges = [0, int(ratios[0]*n), int((ratios[0]+ratios[1])*n),n]
         train_idx = indices[edges[0]:edges[1]]
         val_idx = indices[edges[1]:edges[2]]
         test_idx = indices[edges[2]:edges[3]]
@@ -165,7 +165,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
         label = self.labels[idx]
         video = self.video[idx]
         audio = torch.tensor(self.audio[idx], dtype=torch.float)
-        text = torch.tensor(self.text.[idx], dtype=torch.float)
+        text = torch.tensor(self.text[idx], dtype=torch.float)
         subclip_mask = torch.tensor(self.subclip_mask[idx], dtype=torch.bool)
         
         return label, video, audio, text, subclip_mask

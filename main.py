@@ -16,6 +16,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from transformers import AdamW, get_cosine_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup
 
+from model import MultimodalModel
+
 def pad_collate(batch):
     target = np.array([item[0] for item in batch], dtype=np.float32)
     video = [item[1] for item in batch]
@@ -24,22 +26,21 @@ def pad_collate(batch):
     subclip_masks = [item[4] for item in batch]
     lens = [len(x) for x in video]
     
-    video = nn.utils.rnn.pad_sequence(video, batch _first=True, padding_value=0)
+    video = nn.utils.rnn.pad_sequence(video, batch_first=True, padding_value=0)
     audio = nn.utils.rnn.pad_sequence(audio, batch_first=True, padding_value=0)
     text = nn.utils.rnn.pad_sequence(text, batch_first=True, padding_value=0)
     subclip_masks = nn.utils.rnn.pad_sequence(subclip_masks, batch_first=True, padding_value=0)
     
     lens = torch.LongTensor(lens)
     target = torch.tensor(target)
-    
-    mask = torch.arange(video.shape[1])expand(len(lens), video.shape[1]) < lens.unsqueeze(1)
+    mask = torch.arange(video.shape[1]).expand(len(lens), video.shape[1]) < lens.unsqueeze(1)
     mask = mask
     
     return [target, video, audio, text, mask, subclip_masks]
 
 def train(fold, model, device, trainloader, optimizer, loss_function, epoch):
     current_loss = 0.0
-    model = model.train()
+    #model = model.train()
     for i, data in tqdm(enumerate(trainloader, 0), total=len(trainloader)):
         targets, video, audio, text, mask, subclip_masks = data
         video = video.to(device)
@@ -67,7 +68,7 @@ def test(fold, model, device, testloader, results, movement=False, val=False):
     true = []
     model.eval()
     with torch.no_grad():
-        for i, data in tqdm(enumerate(testloader, 0), total=len(testloader))
+        for i, data in tqdm(enumerate(testloader, 0), total=len(testloader)):
             targets, video, audio, text, mask, subclip_masks = data
             video = video.to(device)
             audio = audio.to(device)
@@ -110,7 +111,6 @@ def main(config):
     N_FOLDS = config.n_folds
     MAX_LEN = config.max_len
     LEARNING_RATE = config.learning_rate
-    MODEL = config.model
     SAVE_DIR = config.save_dir
     OPTIMIZER = config.optimizer
     SCHEDULER = config.use_scheduler
@@ -121,10 +121,19 @@ def main(config):
     SUBCLIP_MAXLEN = config.subclip_maxlen
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Using device: ", DEVICE)
-    
+    print(EMBEDDING_DIM)
     dataset = MultimodalDataset(DATA_DIR, SUBCLIP_MAXLEN)
     dataset.load_data(DATA_DIR, OFFSET, MOVEMENT)
     train_idx, val_idx, test_idx = dataset.make_splits()
+    
+    #model = MultimodalModel(
+    #    hidden_dim=HIDDEN_DIM,
+    #    embedding_dim=EMBEDDING_DIM,
+    #    num_layers=NUM_LAYERS,
+    #    num_heads=NUM_HEADS,
+    #    max_len=MAX_LEN,
+    #    dropout=DROPOUT
+    #)
     
     kfold = KFold(n_splits=N_FOLDS, shuffle=True)
     results_val = {}
@@ -135,31 +144,33 @@ def main(config):
     else:
         loss_function = nn.MSELoss()
         
+    #for fold, (train_idx, val_idx) in enumerate(kfold.split(dataset)):
     for fold in range(N_FOLDS):
-        print('------------fold no---------{}----------------------').format(fold)
+        print('------------fold no---------{}----------------------'.format(fold))
         
         train_subsampler = torch.utils.data.SubsetRandomSampler(train_idx)
         val_subsampler = torch.utils.data.SubsetRandomSampler(val_idx)
         test_subsampler = torch.utils.data.SubsetRandomSampler(test_idx)
-        
+
         trainloader = DataLoader(dataset, batch_size=BATCH_SIZE, sampler=train_subsampler, collate_fn=pad_collate)
         valloader = DataLoader(dataset, batch_size=BATCH_SIZE, sampler=val_subsampler, collate_fn=pad_collate)
         testloader = DataLoader(dataset, batch_size=BATCH_SIZE, sampler=test_subsampler, collate_fn=pad_collate)
         
-        model.train()
-        model.to(Device)
+        #model.train()
+        #model.to(Device)
         
-        if OPTIMIZER=="adamw":
-            optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
-        else:
-            optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-        if SCHEDULER:
-            scheduler = get_cosine_schedule_with_warmup(
-                optimizer, num_warmup_steps=5, num_training_steps=EPOCHS
-            )
-        else:
-            scheduler = None
-        
+        #if OPTIMIZER=="adamw":
+        #    optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
+        #else:
+        #    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+        #if SCHEDULER:
+        #    scheduler = get_cosine_schedule_with_warmup(
+        #        optimizer, num_warmup_steps=5, num_training_steps=EPOCHS
+        #    )
+        #else:
+        #    scheduler = None
+        model = None
+        optimizer = None
         best_metric = np.inf
         counter = 0
         for epoch in range(1, EPOCHS +1):
@@ -223,7 +234,6 @@ def main(config):
     return avgs
 
 if __name__ == '__main__':
-    model_set = {"mult"}
     optimizer_set = {"adam", "adamw"}
 
     parser = argparse.ArgumentParser(description="Multimodal Transformer")
@@ -240,13 +250,12 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--dropout", default=0.3, type=float)
     parser.add_argument("-nf", "--n-folds", default=3, type=int)
     parser.add_argument("-sm", "--subclip-maxlen", default=-1, type=int)
-    parser.add_argument("--model", type=str, choices=model_set, default="mult")
     parser.add_argument("--optimizer", type=str, choices=optimizer_set, default="adamw")
     parser.add_argument("--use-scheduler", action="store_true")
-    parser.add_argument("--movement", action="store_true")
+    parser.add_argument("--movement", action="store_true") # store_true
     parser.add_argument("-o", "--offset", default=1, type=int)
-    parser.add_argument("--data-dir", type=str, default="../")
-    parser.add_argument("--save-dir", type=str, default="../../results")
+    parser.add_argument("--data-dir", type=str, default="./")
+    parser.add_argument("--save-dir", type=str, default="./results")
     config = parser.parse_args()
 
     main(config)
