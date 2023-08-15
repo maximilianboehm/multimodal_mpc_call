@@ -40,7 +40,7 @@ def pad_collate(batch):
 
 def train(fold, model, device, trainloader, optimizer, loss_function, epoch):
     current_loss = 0.0
-    #model = model.train()
+    model = model.train()
     for i, data in tqdm(enumerate(trainloader, 0), total=len(trainloader)):
         targets, video, audio, text, mask, subclip_masks = data
         video = video.to(device)
@@ -52,6 +52,12 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch):
         
         optimizer.zero_grad()
         outputs = model(video, audio, text, mask, subclip_masks)
+        #print(outputs)
+        #print(targets)
+        #print(type(outputs))
+        #print(type(targets))
+        #print(outputs.size())
+        #print(targets.size())
         loss = loss_function(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -78,13 +84,20 @@ def test(fold, model, device, testloader, results, movement=False, val=False):
             subclip_masks = subclip_masks.to(device)
             
             outputs = model(video, audio, text, mask, subclip_masks)
+            print("outputs before")
+            print(outputs)
+            print(F.sigmoid(outputs))
             if movement:
                 outputs = F.sigmoid(outputs) > 0.5
+            print("outputs")
+            print(outputs)
             preds.extend(outputs.detach().cpu().numpy())
             true.extend(targets.detach().cpu().numpy())
             
     res = {}
     preds = np.array(preds)
+    print("preds")
+    print(preds)
     true = np.array(true)
     if not movement:
         res_list = [mean_squared_error(true[:, i], preds[:, i], squared=False) for i in range(true[0].shape[-1])]
@@ -92,6 +105,12 @@ def test(fold, model, device, testloader, results, movement=False, val=False):
     else:
         res_list = [f1_score(true[:, i], preds[:, i]) for i in range(true[0].shape[-1])]
         res['f1-score'] = res_list
+        print("true")
+        print(true)
+        print()
+        print("preds")
+        print(preds)
+        print(res_list)
         res_list = [matthews_corrcoef(true[:, i], preds[:, i]) for i in range(true[0].shape[-1])]
         res['mcc'] = res_list
         
@@ -121,19 +140,19 @@ def main(config):
     SUBCLIP_MAXLEN = config.subclip_maxlen
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Using device: ", DEVICE)
-    print(EMBEDDING_DIM)
     dataset = MultimodalDataset(DATA_DIR, SUBCLIP_MAXLEN)
     dataset.load_data(DATA_DIR, OFFSET, MOVEMENT)
     train_idx, val_idx, test_idx = dataset.make_splits()
     
-    #model = MultimodalModel(
-    #    hidden_dim=HIDDEN_DIM,
-    #    embedding_dim=EMBEDDING_DIM,
-    #    num_layers=NUM_LAYERS,
-    #    num_heads=NUM_HEADS,
-    #    max_len=MAX_LEN,
-    #    dropout=DROPOUT
-    #)
+    model = MultimodalModel(
+        hidden_dim=HIDDEN_DIM,
+        embedding_dim=EMBEDDING_DIM,
+        num_layers=NUM_LAYERS,
+        num_heads=NUM_HEADS,
+        max_len=MAX_LEN,
+        dropout=DROPOUT,
+        movement=MOVEMENT
+    )
     
     kfold = KFold(n_splits=N_FOLDS, shuffle=True)
     results_val = {}
@@ -156,21 +175,20 @@ def main(config):
         valloader = DataLoader(dataset, batch_size=BATCH_SIZE, sampler=val_subsampler, collate_fn=pad_collate)
         testloader = DataLoader(dataset, batch_size=BATCH_SIZE, sampler=test_subsampler, collate_fn=pad_collate)
         
-        #model.train()
-        #model.to(Device)
+        model.train()
+        model.to(DEVICE)
         
-        #if OPTIMIZER=="adamw":
-        #    optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
-        #else:
-        #    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-        #if SCHEDULER:
-        #    scheduler = get_cosine_schedule_with_warmup(
-        #        optimizer, num_warmup_steps=5, num_training_steps=EPOCHS
-        #    )
-        #else:
-        #    scheduler = None
-        model = None
-        optimizer = None
+        if OPTIMIZER=="adamw":
+            optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
+        else:
+            optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+        if SCHEDULER:
+            scheduler = get_cosine_schedule_with_warmup(
+                optimizer, num_warmup_steps=5, num_training_steps=EPOCHS
+            )
+        else:
+            scheduler = None
+            
         best_metric = np.inf
         counter = 0
         for epoch in range(1, EPOCHS +1):
@@ -237,22 +255,22 @@ if __name__ == '__main__':
     optimizer_set = {"adam", "adamw"}
 
     parser = argparse.ArgumentParser(description="Multimodal Transformer")
-    parser.add_argument("-lr", "--learning-rate", default=1e-3, type=float)
+    parser.add_argument("-lr", "--learning-rate", default=1e-4, type=float)
     parser.add_argument("-bs", "--batch-size", default=1, type=int)
     parser.add_argument("-e", "--epochs", default=30, type=int)
-    parser.add_argument('--patience', type=int, default=5)
+    parser.add_argument('--patience', type=int, default=10)
     parser.add_argument('--min-epochs', type=int, default=10)
-    parser.add_argument("-hd", "--hidden-dim", default=16, type=int)
+    parser.add_argument("-hd", "--hidden-dim", default=32, type=int)
     parser.add_argument('-ed','--embedding-dim', nargs='+', default=['768', '768', '768'])
     parser.add_argument("-nl", "--num-layers", default=2, type=int)
-    parser.add_argument("-nh", "--num-heads", default=4, type=int)
-    parser.add_argument("-ml", "--max-len", default=2048, type=int)
-    parser.add_argument("-d", "--dropout", default=0.3, type=float)
+    parser.add_argument("-nh", "--num-heads", default=2, type=int)
+    parser.add_argument("-ml", "--max-len", default=2500, type=int)
+    parser.add_argument("-d", "--dropout", default=0.1, type=float)
     parser.add_argument("-nf", "--n-folds", default=3, type=int)
     parser.add_argument("-sm", "--subclip-maxlen", default=-1, type=int)
     parser.add_argument("--optimizer", type=str, choices=optimizer_set, default="adamw")
     parser.add_argument("--use-scheduler", action="store_true")
-    parser.add_argument("--movement", action="store_true") # store_true
+    parser.add_argument("--movement", action="store_false") # store_true
     parser.add_argument("-o", "--offset", default=1, type=int)
     parser.add_argument("--data-dir", type=str, default="./")
     parser.add_argument("--save-dir", type=str, default="./results")
