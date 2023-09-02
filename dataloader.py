@@ -19,9 +19,10 @@ def exists(path):
 bank_target_dict = {'scripts_boc': "Canada.numbers", 'scripts_boe': "England.numbers", 'scripts_bonz': "New Zealand.numbers", 'scripts_ecb': "Europe.numbers", 'scripts_frb': "US.numbers", 'scripts_bosa': "South Africa.numbers"}
 
 def load_labels_df(path):
+    print(path)
     doc = Document(path)
-    sheets = doc.sheets()
-    tables = sheets[0].tables()
+    sheets = doc.sheets
+    tables = sheets[0].tables
     rows = tables[0].rows(values_only=True)
     df = pd.DataFrame(rows).drop(columns=[0])
     df = df[1:]
@@ -59,6 +60,9 @@ def get_target(df_target, curr_date_parsed, offset, ctry, movement=False):
         
         if len(row_label)==0:
             return 0, parser.parse(target_date)
+        
+        # Calculate volatility with offset here. Use volatility equation from paper
+        
         return row_label.values[0][1], parser.parse(target_date)
     
     

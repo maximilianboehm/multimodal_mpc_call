@@ -18,6 +18,8 @@ from transformers import AdamW, get_cosine_schedule_with_warmup, get_cosine_with
 
 from model import MultimodalModel
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "MIG-ac3C47b3-456e-56ff-aa3e-5731e429d659"
+
 def pad_collate(batch):
     target = np.array([item[0] for item in batch], dtype=np.float32)
     video = [item[1] for item in batch]
@@ -52,12 +54,6 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch):
         
         optimizer.zero_grad()
         outputs = model(video, audio, text, mask, subclip_masks)
-        #print(outputs)
-        #print(targets)
-        #print(type(outputs))
-        #print(type(targets))
-        #print(outputs.size())
-        #print(targets.size())
         loss = loss_function(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -82,35 +78,30 @@ def test(fold, model, device, testloader, results, movement=False, val=False):
             targets = targets.to(device)
             mask = mask.to(device)
             subclip_masks = subclip_masks.to(device)
-            
             outputs = model(video, audio, text, mask, subclip_masks)
-            print("outputs before")
-            print(outputs)
-            print(F.sigmoid(outputs))
+            print(outputs) # Are outputs between 0 and 1? and are the values changing logically 
             if movement:
                 outputs = F.sigmoid(outputs) > 0.5
-            print("outputs")
-            print(outputs)
             preds.extend(outputs.detach().cpu().numpy())
             true.extend(targets.detach().cpu().numpy())
             
     res = {}
     preds = np.array(preds)
-    print("preds")
-    print(preds)
     true = np.array(true)
+    print("Movement: ", movement)
     if not movement:
+        "Hellooooooooooooo"
         res_list = [mean_squared_error(true[:, i], preds[:, i], squared=False) for i in range(true[0].shape[-1])]
         res['rmse'] = res_list
     else:
+        "Hellooooo22222222"
         res_list = [f1_score(true[:, i], preds[:, i]) for i in range(true[0].shape[-1])]
         res['f1-score'] = res_list
         print("true")
         print(true)
         print()
         print("preds")
-        print(preds)
-        print(res_list)
+        print(preds) # Are preds changing while training? (some predictions always seem to be same after >0,5 line)
         res_list = [matthews_corrcoef(true[:, i], preds[:, i]) for i in range(true[0].shape[-1])]
         res['mcc'] = res_list
         
@@ -210,16 +201,18 @@ def main(config):
                     print("Early stopping")
                     break
                     
-        results = test(fold, model, DEVICE, testloader, results)
+        results = test(fold, model, DEVICE, testloader, results, MOVEMENT)
         
         
     print(f'K-FOLD CROSS VALIDATION RESULTS FOR {N_FOLDS} FOLDS')
     print('--------------------------------')
     sums = []
     mccs = []
+    print(results)
     for key, value in results.items():
         if MOVEMENT:
-            sums.append(np.array(value['report']['macro avg']['f1-score']))
+            #sums.append(np.array(value['report']['macro avg']['f1-score']))
+            sums.append(np.array(value['f1-score']))
             mccs.append(np.array(value['mcc']))
         else:
             sums.append(np.array(value['rmse']))
@@ -255,18 +248,18 @@ if __name__ == '__main__':
     optimizer_set = {"adam", "adamw"}
 
     parser = argparse.ArgumentParser(description="Multimodal Transformer")
-    parser.add_argument("-lr", "--learning-rate", default=1e-4, type=float)
-    parser.add_argument("-bs", "--batch-size", default=1, type=int)
-    parser.add_argument("-e", "--epochs", default=30, type=int)
-    parser.add_argument('--patience', type=int, default=10)
-    parser.add_argument('--min-epochs', type=int, default=10)
+    parser.add_argument("-lr", "--learning-rate", default=1e-5, type=float)
+    parser.add_argument("-bs", "--batch-size", default=5, type=int)
+    parser.add_argument("-e", "--epochs", default=1, type=int) # 10
+    parser.add_argument('--patience', type=int, default=1) # 10
+    parser.add_argument('--min-epochs', type=int, default=1) # 10
     parser.add_argument("-hd", "--hidden-dim", default=32, type=int)
     parser.add_argument('-ed','--embedding-dim', nargs='+', default=['768', '768', '768'])
     parser.add_argument("-nl", "--num-layers", default=2, type=int)
     parser.add_argument("-nh", "--num-heads", default=2, type=int)
     parser.add_argument("-ml", "--max-len", default=2500, type=int)
     parser.add_argument("-d", "--dropout", default=0.1, type=float)
-    parser.add_argument("-nf", "--n-folds", default=3, type=int)
+    parser.add_argument("-nf", "--n-folds", default=2, type=int) #3
     parser.add_argument("-sm", "--subclip-maxlen", default=-1, type=int)
     parser.add_argument("--optimizer", type=str, choices=optimizer_set, default="adamw")
     parser.add_argument("--use-scheduler", action="store_true")

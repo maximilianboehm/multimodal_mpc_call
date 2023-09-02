@@ -271,33 +271,33 @@ class MultimodalModel(nn.Module):
             # Asset price movement prediction
             self.asset_price_movement_mlp_index_large = nn.Sequential(
                 nn.Linear(embedding_dim[0]*max_len, hidden_dim),
-                nn.Sigmoid(), 
-                nn.Linear(hidden_dim, 1)
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid()
             )
             self.asset_price_movement_mlp_index_small = nn.Sequential(
-                nn.Linear(embedding_dim[0]*max_len, hidden_dim),
-                nn.Sigmoid(), 
-                nn.Linear(hidden_dim, 1)
+                nn.Linear(embedding_dim[0]*max_len, hidden_dim), 
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid()
             )
             self.asset_price_movement_mlp_gold = nn.Sequential(
                 nn.Linear(embedding_dim[0]*max_len, hidden_dim),
-                nn.Sigmoid(), 
-                nn.Linear(hidden_dim, 1)
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid()
             )
             self.asset_price_movement_mlp_dollar = nn.Sequential(
                 nn.Linear(embedding_dim[0]*max_len, hidden_dim),
-                nn.Sigmoid(), 
-                nn.Linear(hidden_dim, 1)
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid(),
             )
             self.asset_price_movement_mlp_10_y_bond = nn.Sequential(
-                nn.Linear(embedding_dim[0]*max_len, hidden_dim),
-                nn.Sigmoid(), 
-                nn.Linear(hidden_dim, 1)
+                nn.Linear(embedding_dim[0]*max_len, hidden_dim), 
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid()
             )
             self.asset_price_movement_mlp_3_m_bond = nn.Sequential(
                 nn.Linear(embedding_dim[0]*max_len, hidden_dim),
-                nn.Sigmoid(), 
-                nn.Linear(hidden_dim, 1)
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid()
             )
 
     def forward(self, video, audio, text, mask, subclip_mask):
