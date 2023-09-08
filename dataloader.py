@@ -36,7 +36,7 @@ def get_subset(df, target_var=1):
     df_sub = df_sub.rename(columns=df_sub.iloc[0]).drop(df_sub.index[0]).reset_index(drop=True)
     return df_sub
 
-def get_target(df_target, curr_date_parsed, offset, ctry, movement=False):
+def get_target(df_target, curr_date_parsed, offset, ctry, movement=False, volatility_window=1):
     target_date = curr_date_parsed + timedelta(days=offset)
     
     if ctry=="US.numbers" or ctry=="Europe.numbers" or ctry=="England.numbers":
@@ -61,9 +61,24 @@ def get_target(df_target, curr_date_parsed, offset, ctry, movement=False):
         if len(row_label)==0:
             return 0, parser.parse(target_date)
         
-        # Calculate volatility with offset here. Use volatility equation from paper
+        target_index = df_target[df_target[df_target.columns[0]] == target_date].index[0]
+        last_x_days_rows = df_target.iloc[target_index:target_index + volatility_window]
         
-        return row_label.values[0][1], parser.parse(target_date)
+        
+        # Calculate volatility with offset here. Use volatility equation from paper
+        #last_x_days_rows["Return"] = last_x_days_rows[last_x_days_rows.columns[1]].pct_change()
+        last_x_days_rows = last_x_days_rows.copy()
+        last_x_days_rows["Return"] = last_x_days_rows[last_x_days_rows.columns[1]].pct_change()
+        last_x_days_rows = last_x_days_rows[1:]
+        average_return = last_x_days_rows["Return"].mean()
+        last_x_days_rows["Variance"] = (last_x_days_rows["Return"] - average_return) ** 2
+        var_sum = last_x_days_rows["Variance"].sum()
+        volatility = np.log(np.sqrt(var_sum / volatility_window)) 
+        
+        # Volatility
+        return volatility, parser.parse(target_date)
+        # Acutal prices
+        #return row_label.values[0][1], parser.parse(target_date)
     
     
     
@@ -82,7 +97,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
         self.subclip_mask = []
         self.subclip_maxlen = subclip_maxlen
     
-    def load_data(self, data_path=None, offset=1, movement=False):
+    def load_data(self, data_path=None, offset=1, movement=False, volatility_window=1):
         errs = 0
         tot = 0
         if data_path is None:
@@ -112,7 +127,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
                     labels = []
                     for i in range(6):
                         df_subset = get_subset(df_target, i+1)
-                        label, timestamp = get_target(df_subset, parsed_date, offset, ctry, movement)
+                        label, timestamp = get_target(df_subset, parsed_date, offset, ctry, movement, volatility_window)
                         labels.append(label)
                     videofile = os.path.join(folderpath, "video_fragments.npz")
                     transcriptfile = os.path.join(folderpath, "bert_embeddings.npz")

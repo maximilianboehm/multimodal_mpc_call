@@ -90,7 +90,7 @@ class CrossModalAttention(nn.Module):
         z_i_alpha_to_beta_final = self.layer_norm(z_i_alpha_to_beta_intermediate + z_i_alpha_to_beta_ff)
         #print("z_i_alpha_to_beta_final ", z_i_alpha_to_beta_final.size())
         
-        return z_i_alpha_to_beta_final
+        return z_i_alpha_to_beta_final, attention_scores
     
         
 class MultimodalCrossTransformer(nn.Module):
@@ -108,30 +108,38 @@ class MultimodalCrossTransformer(nn.Module):
     def forward(self, video, audio, text):
         # Video Modality
         #print("MultimodalCrossTransformer: ")
-        audio_to_video = self.audio_to_video_attention(audio, video)
+        audio_to_video, av_attention_scores = self.audio_to_video_attention(audio, video)
         #print("audio_to_video", audio_to_video.size())
-        text_to_video = self.text_to_video_attention(text, video)
+        text_to_video, tv_attention_scores = self.text_to_video_attention(text, video)
         #print("text_to_video", text_to_video.size())
-        video_attention = torch.cat([audio_to_video, text_to_video], dim=-1)
+        video_attention  = torch.cat([audio_to_video, text_to_video], dim=-1)
         #print("video_attention", video_attention.size())
         
         # Audio Modality
-        video_to_audio = self.video_to_audio_attention(video, audio)
+        video_to_audio, va_attention_scores = self.video_to_audio_attention(video, audio)
         #print("video_to_audio", video_to_audio.size())
-        text_to_audio = self.text_to_audio_attention(text, audio)
+        text_to_audio, ta_attention_scores = self.text_to_audio_attention(text, audio)
         #print("text_to_audio", text_to_audio.size())
         audio_attention = torch.cat([video_to_audio, text_to_audio], dim=-1)
         #print("audio_attention", audio_attention.size())
         
         # Text Modality
-        video_to_text = self.video_to_text_attention(video, text)
+        video_to_text, vt_attention_scores = self.video_to_text_attention(video, text)
         #print("video_to_text", video_to_text.size())
-        audio_to_text = self.audio_to_text_attention(audio, text)
+        audio_to_text, at_attention_scores = self.audio_to_text_attention(audio, text)
         #print("audio_to_text", audio_to_text.size())
         text_attention = torch.cat([video_to_text, audio_to_text], dim=-1)
         #print("text_attention", text_attention.size())
         
-        return [video_attention, audio_attention, text_attention]
+        # Dict to store attention scores
+        attention_scores = {"av_attention_scores": av_attention_scores,
+                           "tv_attention_scores": tv_attention_scores,
+                           "va_attention_scores": va_attention_scores,
+                           "ta_attention_scores": ta_attention_scores,
+                           "vt_attention_scores": vt_attention_scores,
+                           "at_attention_scores": at_attention_scores}
+        
+        return [video_attention, audio_attention, text_attention], attention_scores
         
         
 class TemporalEnsemble(nn.Module):
@@ -217,8 +225,7 @@ class TemporalEnsembleWithFusion(nn.Module):
         #print("combined_representation ", combined_representation.size())
         
         return combined_representation # Pass this into final MLPs
-            
-        
+
 class MultimodalModel(nn.Module):
     def __init__(self, hidden_dim, embedding_dim, num_layers, num_heads, max_len, dropout, movement):
         super(MultimodalModel, self).__init__()
@@ -310,7 +317,7 @@ class MultimodalModel(nn.Module):
         audio_conv1d_pe = self.video_conv1d_pe(audio, mask)
         text_conv1d_pe = self.video_conv1d_pe(text, mask)
         
-        hidden_states = self.multimodal_cross_transformer(video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe)
+        hidden_states, attention_scores_cross_transformer = self.multimodal_cross_transformer(video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe)
         
         concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
         
@@ -346,4 +353,4 @@ class MultimodalModel(nn.Module):
             ten_y_bond_output = self.asset_price_movement_mlp_10_y_bond(padded_flat_input)
             three_m_bond_output = self.asset_price_movement_mlp_3_m_bond(padded_flat_input)
         
-        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1)
+        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1), attention_scores_cross_transformer
