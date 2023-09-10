@@ -50,11 +50,12 @@ class TemporalConvolutionalLayer(nn.Module):
         
         
 class CrossModalAttention(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, num_heads):
         super(CrossModalAttention, self).__init__()
-        self.W_q = nn.Linear(input_dim, input_dim)
-        self.W_k = nn.Linear(input_dim, input_dim)
-        self.W_v = nn.Linear(input_dim, input_dim)
+        self.num_heads = num_heads
+        self.W_q = nn.Linear(input_dim // self.num_heads, input_dim // self.num_heads)
+        self.W_k = nn.Linear(input_dim  // self.num_heads, input_dim // self.num_heads)
+        self.W_v = nn.Linear(input_dim  // self.num_heads, input_dim // self.num_heads)
         self.W_ff = nn.Linear(input_dim, input_dim)
         self.layer_norm = nn.LayerNorm(input_dim)
         
@@ -65,19 +66,32 @@ class CrossModalAttention(nn.Module):
         Z_i_alpha_beta = self.layer_norm(Zi_1_alpha_beta)
         Z_i_alpha = self.layer_norm(Zi_1_alpha)
         
-        q = self.W_q(Z_i_alpha_beta)
-        #print("q ", q.size())
-        k = self.W_k(Z_i_alpha)
-        #print("k ", k.size())
-        v = self.W_v(Z_i_alpha)
-        #print("v ", v.size())
+        dim_per_head = Z_i_alpha.size(2) // self.num_heads
+        batch_size = Z_i_alpha.size(0)
+        seq_len = Z_i_alpha.size(1)
+        embed_dim = Z_i_alpha.size(2)
         
-        attention_scores = torch.matmul(q, k.transpose(-2, -1))
+        q = Z_i_alpha_beta.view(batch_size, seq_len, self.num_heads, dim_per_head)
+        k = Z_i_alpha.view(batch_size, seq_len, self.num_heads, dim_per_head)
+        v = Z_i_alpha.view(batch_size, seq_len, self.num_heads, dim_per_head) # check if v might has to be Z_i_alpha_beta
+        
+        q = self.W_q(q)
+        #print("q ", q.size())
+        k = self.W_k(k)
+        #print("k ", k.size())
+        v = self.W_v(v)
+        #print("v ", v.size())
+       
+        k = k.permute(0, 2, 1, 3)
+        print(q.size())
+        print(k.size())
+        attention_scores = torch.matmul(q, k) / dim_per_head
         #print("attention_scores ", attention_scores.size())
         attention_weights = torch.nn.functional.softmax(attention_scores / math.sqrt(Z_i_alpha.size(-1)), dim=-1)
         #print("attention_weights ", attention_weights.size())
 
         attended_representation = torch.matmul(attention_weights, v)
+        attended_representation = attended_representation.view(batch_size, seq_len, embeded_dim)
         #print("attended_representation: ", attended_representation.size())
         cross_modal_adaption = attended_representation + Z_i_alpha_beta
         #print("cross_modal_adaption ", cross_modal_adaption.size())
@@ -90,20 +104,47 @@ class CrossModalAttention(nn.Module):
         z_i_alpha_to_beta_final = self.layer_norm(z_i_alpha_to_beta_intermediate + z_i_alpha_to_beta_ff)
         #print("z_i_alpha_to_beta_final ", z_i_alpha_to_beta_final.size())
         
-        return z_i_alpha_to_beta_final, attention_scores
-    
+        return z_i_alpha_to_beta_final, attended_representation
+
+class CrossModalAttention2(nn.Module):
+    def __init__(self, input_dim, num_heads):
+        super(CrossModalAttention2, self).__init__()
+        self.num_heads = num_heads
+        self.multihead_attention = nn.MultiheadAttention(input_dim, num_heads)
+        self.W_ff = nn.Linear(input_dim, input_dim)
+        self.layer_norm = nn.LayerNorm(input_dim)
+
+    def forward(self, Zi_1_alpha_beta, Zi_1_alpha):
+        Z_i_alpha_beta = self.layer_norm(Zi_1_alpha_beta)
+        Z_i_alpha = self.layer_norm(Zi_1_alpha)
+
+        cross_modal_adaption, _ = self.multihead_attention(
+            Z_i_alpha_beta.permute(1, 0, 2),
+            Z_i_alpha.permute(1, 0, 2),
+            Z_i_alpha.permute(1, 0, 2)
+        )
+
+        cross_modal_adaption = cross_modal_adaption.permute(1, 0, 2)
+        cross_modal_adaption = cross_modal_adaption + Zi_1_alpha_beta
+
+        z_i_alpha_to_beta_intermediate = self.layer_norm(cross_modal_adaption)
+        z_i_alpha_to_beta_ff = self.W_ff(z_i_alpha_to_beta_intermediate)
+        z_i_alpha_to_beta_final = self.layer_norm(z_i_alpha_to_beta_intermediate + z_i_alpha_to_beta_ff)
+
+        return z_i_alpha_to_beta_final, cross_modal_adaption
+
         
 class MultimodalCrossTransformer(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, num_heads):
         super(MultimodalCrossTransformer, self).__init__()
-        self.audio_to_video_attention = CrossModalAttention(input_dim)
-        self.text_to_video_attention = CrossModalAttention(input_dim)
+        self.audio_to_video_attention = CrossModalAttention2(input_dim, num_heads)
+        self.text_to_video_attention = CrossModalAttention2(input_dim, num_heads)
         
-        self.video_to_audio_attention = CrossModalAttention(input_dim)
-        self.text_to_audio_attention = CrossModalAttention(input_dim)
+        self.video_to_audio_attention = CrossModalAttention2(input_dim, num_heads)
+        self.text_to_audio_attention = CrossModalAttention2(input_dim, num_heads)
         
-        self.video_to_text_attention = CrossModalAttention(input_dim)
-        self.audio_to_text_attention = CrossModalAttention(input_dim)
+        self.video_to_text_attention = CrossModalAttention2(input_dim, num_heads)
+        self.audio_to_text_attention = CrossModalAttention2(input_dim, num_heads)
         
     def forward(self, video, audio, text):
         # Video Modality
@@ -238,7 +279,7 @@ class MultimodalModel(nn.Module):
         self.audio_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
         self.text_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
         
-        self.multimodal_cross_transformer = MultimodalCrossTransformer(embedding_dim[0])
+        self.multimodal_cross_transformer = MultimodalCrossTransformer(embedding_dim[0], num_heads)
         
         self.temporal_ensemble = TemporalEnsemble(num_layers, embedding_dim[0])
         

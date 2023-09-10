@@ -93,6 +93,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
         self.audio = []
         self.video = []
         self.labels = []
+        self.timestamps_dt = []
         self.timestamps = []
         self.subclip_mask = []
         self.subclip_maxlen = subclip_maxlen
@@ -148,6 +149,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
                         self.text.append(bert_embs)
                         self.audio.append(wav2vec2_embs)
                         self.labels.append(np.array(labels))
+                        self.timestamps_dt.append((timestamp, videofile))
                         self.timestamps.append(datetime.timestamp(timestamp))
                     else:
                         with open('errors_dataloader.txt', 'a') as f:
@@ -186,6 +188,7 @@ class MultimodalDataset(torch.utils.data.Dataset):
         audio = torch.tensor(self.audio[idx], dtype=torch.float)
         text = torch.tensor(self.text[idx], dtype=torch.float)
         subclip_mask = torch.tensor(self.subclip_mask[idx], dtype=torch.bool)
+        timestamp = self.timestamps_dt[idx]
         
-        return label, video, audio, text, subclip_mask
+        return label, video, audio, text, subclip_mask, timestamp
         

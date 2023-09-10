@@ -23,8 +23,8 @@ import matplotlib.pyplot as plt
 
 from model import MultimodalModel
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = "MIG-ac3C47b3-456e-56ff-aa3e-5731e429d659"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "MIG-ac3C47b3-456e-56ff-aa3e-5731e429d659"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 def pad_collate(batch):
     target = np.array([item[0] for item in batch], dtype=np.float32)
@@ -33,6 +33,7 @@ def pad_collate(batch):
     text = [item[3] for item in batch]
     subclip_masks = [item[4] for item in batch]
     lens = [len(x) for x in video]
+    timestamps = [item[5] for item in batch]
     
     video = nn.utils.rnn.pad_sequence(video, batch_first=True, padding_value=0)
     audio = nn.utils.rnn.pad_sequence(audio, batch_first=True, padding_value=0)
@@ -43,20 +44,21 @@ def pad_collate(batch):
     target = torch.tensor(target)
     mask = torch.arange(video.shape[1]).expand(len(lens), video.shape[1]) < lens.unsqueeze(1)
     mask = mask
-    
-    return [target, video, audio, text, mask, subclip_masks]
+    # print(target)
+    return [target, video, audio, text, mask, subclip_masks, timestamps]
 
-def train(fold, model, device, trainloader, optimizer, loss_function, epoch, grad_norms, activations, weight_distributions):
+def train(fold, model, device, trainloader, optimizer, loss_function, epoch, grad_norms, activations, weight_distributions, PLOTS):
     current_loss = 0.0
     model = model.train()
     for i, data in tqdm(enumerate(trainloader, 0), total=len(trainloader)):
-        targets, video, audio, text, mask, subclip_masks = data
+        targets, video, audio, text, mask, subclip_masks, timestamp = data
         video = video.to(device)
         audio = audio.to(device)
         text = text.to(device)
         targets = targets.to(device)
         mask = mask.to(device)
         subclip_masks = subclip_masks.to(device)
+        timestamps = timestamp
         
         optimizer.zero_grad()
         outputs, attention_scores_cross_transformer = model(video, audio, text, mask, subclip_masks)
@@ -74,52 +76,63 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
         
         optimizer.step()
         
-        # Save activation histograms
-        activation_values = []
-        layer_names = []
-        # Function to hook into each layer and collect activations
-        def hook_fn(module, input, output):
-            activation_values.append(output)
-        # Register hooks for all layers
-        hooks = []
-        for name, layer in model.named_children():
-            hook = layer.register_forward_hook(hook_fn)
-            hooks.append(hook)
-            layer_names.append(name)
-        # Perform forward pass to collect activations
-        with torch.no_grad():
-            model(video, audio, text, mask, subclip_masks)
-        # Remove hooks
-        for hook in hooks:
-            hook.remove()
-        activation_values_dict = {}
-        for j, name in enumerate(layer_names):
-            activation_values_dict[name] = activation_values[j]
-        activations.append(activation_values_dict)
-            
-        # Plot attention maps
-        for key in attention_scores_cross_transformer:
-            fig, axes = plt.subplots(len(attention_scores_cross_transformer[key]), 1, figsize=(16,4*len(attention_scores_cross_transformer[key])))
-            count = 0
-            for ax, heatmap in zip(axes, attention_scores_cross_transformer[key]):
-                heatmap = heatmap.detach().cpu().numpy()
-                im = ax.imshow(heatmap, cmap='viridis', interpolation='nearest')
-                ax.set_title(f'Example {count+1}')
-                ax.axis('off')
-                count += 1
-        plt.tight_layout()
-        cbar = fig.colorbar(im, ax=axes.tolist(), pad=0.02)
-        cbar.set_label('Color Scale')
-        cbar.ax.set_ylabel('Label on Color Bar', rotation=270, labelpad=20)
-        cbar.ax.tick_params(axis='y', length=0, width=0, pad=10)
-        cbar.ax.set_yticklabels(['Low', 'Medium', 'High'])
-        #plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/attention_map_{key}_{fold}_epoch_{epoch}_batch_{i}.png')
+        # Plot activation histograms and attention maps
+        if PLOTS:
+            # Save activation histograms
+            activation_values = []
+            layer_names = []
+            # Function to hook into each layer and collect activations
+            def hook_fn(module, input, output):
+                activation_values.append(output)
+            # Register hooks for all layers
+            hooks = []
+            for name, layer in model.named_children():
+                hook = layer.register_forward_hook(hook_fn)
+                hooks.append(hook)
+                layer_names.append(name)
+            # Perform forward pass to collect activations
+            with torch.no_grad():
+                model(video, audio, text, mask, subclip_masks)
+            # Remove hooks
+            for hook in hooks:
+                hook.remove()
+            activation_values_dict = {}
+            for j, name in enumerate(layer_names):
+                activation_values_dict[name] = activation_values[j]
+            activations.append(activation_values_dict)
         
-        weight_distribution_info = []
-        for name, param in model.named_parameters():
-            if param.requires_grad and 'bias' not in name:
-                weight_distribution_info.append((name, param.data.clone().cpu().numpy()))
-        weight_distributions.append(weight_distribution_info)
+        #if PLOTS:
+        # Plot attention maps
+        if i == 1:
+            for key in attention_scores_cross_transformer:
+                fig, axes = plt.subplots(len(attention_scores_cross_transformer[key]), 1, figsize=(0.3*attention_scores_cross_transformer[key][0].shape[0],4*len(attention_scores_cross_transformer[key])))
+                count = 0
+                for ax, heatmap, date in zip(axes, attention_scores_cross_transformer[key], timestamps):
+                    heatmap = heatmap.detach().cpu().numpy()
+                    heatmap = heatmap.T
+                    im = ax.imshow(heatmap, cmap='viridis', interpolation='nearest', aspect='auto')
+                    x_ticks = range(heatmap.shape[1])  # Adjust this as needed
+                    ax.set_xticks(x_ticks)
+                    #ax.set_xticklabels(x_ticks)
+                    x_tick_labels = [str(label) if label % 2 == 0 else "" for label in x_ticks]
+                    ax.set_xticklabels(x_tick_labels)
+                    ax.set_title(date[1]+" "+date[0].strftime('%B %d, %Y'))
+                    count += 1
+                break
+
+                cbar = plt.colorbar(im, ax=axes.tolist(), pad=0.02)
+                cbar.set_label('Color Scale')
+                cbar.ax.set_ylabel('Label on Color Bar', rotation=270, labelpad=20)
+                cbar.ax.tick_params(axis='y', length=0, width=0, pad=10)
+                plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/attention_map_{key}_fold_{fold}_epoch_{epoch}_batch_{i}.png')
+
+        if PLOTS:
+            # Plot weight distributions
+            weight_distribution_info = []
+            for name, param in model.named_parameters():
+                if param.requires_grad and 'bias' not in name:
+                    weight_distribution_info.append((name, param.data.clone().cpu().numpy()))
+            weight_distributions.append(weight_distribution_info)
         
         current_loss += loss.item()
         outputs.detach()
@@ -135,7 +148,7 @@ def test(fold, model, device, testloader, results, movement=False, val=False):
     model.eval()
     with torch.no_grad():
         for i, data in tqdm(enumerate(testloader, 0), total=len(testloader)):
-            targets, video, audio, text, mask, subclip_masks = data
+            targets, video, audio, text, mask, subclip_masks, _ = data
             video = video.to(device)
             audio = audio.to(device)
             text = text.to(device)
@@ -187,6 +200,7 @@ def main(config):
     SUBCLIP_MAXLEN = config.subclip_maxlen
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     print("Using device: ", DEVICE)
+    PLOTS = config.plots
     dataset = MultimodalDataset(DATA_DIR, SUBCLIP_MAXLEN)
     dataset.load_data(DATA_DIR, OFFSET, MOVEMENT, VOLATILITY_WINDOW)
     train_idx, val_idx, test_idx = dataset.make_splits()
@@ -253,7 +267,7 @@ def main(config):
         activations = []
         weight_distributions = []
         for epoch in range(1, EPOCHS +1):
-            current_loss = train(fold, model, DEVICE, trainloader, optimizer, loss_function, epoch, grad_norms, activations, weight_distributions)
+            current_loss = train(fold, model, DEVICE, trainloader, optimizer, loss_function, epoch, grad_norms, activations, weight_distributions, PLOTS)
             training_losses.append(current_loss)
             results_val = test(fold, model, DEVICE, valloader, results_val, val=True, movement=MOVEMENT)
       
@@ -317,58 +331,59 @@ def main(config):
             plt.ylabel('Gradient Norm')
             plt.title('Gradient Norms Over Epochs')
             plt.grid(True)
-            plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/gradients_fold_{fold}_epoch_{epoch}.png')
+            plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/gradients_fold_{fold}_epoch_{epoch / BATCH_SIZE}.png')
 
             # Visualize weight distributions and their corresponding names
-            colors = plt.cm.viridis(np.linspace(0, 1, 768))
-            for j, weight_distribution_info in enumerate(weight_distributions):
-                for name, weight_distribution in weight_distribution_info:
-                    plt.figure(figsize=(6, 4))
-                    if len(list(weight_distribution.shape)) > 2:
-                        for i in range(weight_distribution.shape[2]):
-                            values = weight_distribution[:, :, i].flatten()
-                            offset = i * 0.01  # Small offset to separate histograms
-                            plt.hist(values+offset, bins=50, alpha=0.2, label=f'{name} Channel {i}', color=colors[i], edgecolor='k', lw=0.5)
-                    else:
-                        plt.hist(weight_distribution.flatten(), bins=50, alpha=0.2, label=f'{name} Channel _', color=colors[0], edgecolor='k', lw=0.5)
-                    plt.xlabel('Weight Value')
-                    plt.ylabel('Frequency')
-                    plt.title(f'Weight Distribution - {name}')
-                    plt.legend()
-                    plt.grid(True)
-                    plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/weight_distributions_fold_{fold}_epoch_{j}__layer_{name}.png')
-            
-            # Plot activation histograms
-            activations_plot_dict = {}
-            for layer_dict in activations:
-                for sub_model in layer_dict:
-                    if not torch.is_tensor(layer_dict[sub_model]):
-                        if type(layer_dict[sub_model][0]) is list:
-                            for i, tensor in enumerate(layer_dict[sub_model][0]):
-                                 activations_plot_dict[sub_model + f"_{i}"] = tensor.cpu().numpy().flatten()
+            if PLOTS:
+                colors = plt.cm.viridis(np.linspace(0, 1, 768))
+                for j, weight_distribution_info in enumerate(weight_distributions):
+                    for name, weight_distribution in weight_distribution_info:
+                        plt.figure(figsize=(6, 4))
+                        if len(list(weight_distribution.shape)) > 2:
+                            for i in range(weight_distribution.shape[2]):
+                                values = weight_distribution[:, :, i].flatten()
+                                offset = i * 0.01  # Small offset to separate histograms
+                                plt.hist(values+offset, bins=50, alpha=0.2, label=f'{name} Channel {i}', color=colors[i], edgecolor='k', lw=0.5)
                         else:
-                            activations_plot_dict[sub_model] = layer_dict[sub_model][0].cpu().numpy().flatten()
-                        for layer in layer_dict[sub_model][1]:
-                            activations_plot_dict[layer] = layer_dict[sub_model][1][layer].cpu().numpy().flatten()
-                    else:
-                        activations_plot_dict[sub_model] = layer_dict[sub_model].cpu().numpy().flatten()
+                            plt.hist(weight_distribution.flatten(), bins=50, alpha=0.2, label=f'{name} Channel _', color=colors[0], edgecolor='k', lw=0.5)
+                        plt.xlabel('Weight Value')
+                        plt.ylabel('Frequency')
+                        plt.title(f'Weight Distribution - {name}')
+                        plt.legend()
+                        plt.grid(True)
+                        plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/weight_distributions/weight_distributions_fold_{fold}_epoch_{j}__layer_{name}.png')
             
-            # Create a single figure to contain all histograms
-            fig, axes = plt.subplots(nrows=len(activations_plot_dict), figsize=(8, 6 * len(activations_plot_dict)))
+                # Plot activation histograms
+                activations_plot_dict = {}
+                for layer_dict in activations:
+                    for sub_model in layer_dict:
+                        if not torch.is_tensor(layer_dict[sub_model]):
+                            if type(layer_dict[sub_model][0]) is list:
+                                for i, tensor in enumerate(layer_dict[sub_model][0]):
+                                     activations_plot_dict[sub_model + f"_{i}"] = tensor.cpu().numpy().flatten()
+                            else:
+                                activations_plot_dict[sub_model] = layer_dict[sub_model][0].cpu().numpy().flatten()
+                            for layer in layer_dict[sub_model][1]:
+                                activations_plot_dict[layer] = layer_dict[sub_model][1][layer].cpu().numpy().flatten()
+                        else:
+                            activations_plot_dict[sub_model] = layer_dict[sub_model].cpu().numpy().flatten()
 
-            # Iterate through the key-value pairs in activations_plot_dict
-            for i, (label, data) in enumerate(activations_plot_dict.items()):
-                # Create a histogram for each data array
-                ax = axes[i]
-                ax.hist(data, bins=50)  # You can adjust the number of bins as needed
-                ax.set_title(label)
-                ax.set_xlabel('Activation Value')
-                ax.set_ylabel('Frequency')
+                # Create a single figure to contain all histograms
+                fig, axes = plt.subplots(nrows=len(activations_plot_dict), figsize=(8, 6 * len(activations_plot_dict)))
 
-            # Adjust layout to prevent overlap
-            plt.tight_layout()
-            # Save the single figure with all subplots as an image file
-            plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/activations_fold_{fold}_epoch_{epoch}.png')
+                # Iterate through the key-value pairs in activations_plot_dict
+                for i, (label, data) in enumerate(activations_plot_dict.items()):
+                    # Create a histogram for each data array
+                    ax = axes[i]
+                    ax.hist(data, bins=50)  # You can adjust the number of bins as needed
+                    ax.set_title(label)
+                    ax.set_xlabel('Activation Value')
+                    ax.set_ylabel('Frequency')
+
+                # Adjust layout to prevent overlap
+                plt.tight_layout()
+                # Save the single figure with all subplots as an image file
+                plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/activations_fold_{fold}_epoch_{epoch}.png')
             
         results = test(fold, model, DEVICE, testloader, results, MOVEMENT)
         
@@ -418,11 +433,11 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Multimodal Transformer")
     parser.add_argument("-lr", "--learning-rate", default=1e-5, type=float)
-    parser.add_argument("-bs", "--batch-size", default=2, type=int) # 32
+    parser.add_argument("-bs", "--batch-size", default=8, type=int) # 32 # 2
     parser.add_argument("-e", "--epochs", default=30, type=int) # 10
     parser.add_argument('--patience', type=int, default=10) # 10
     parser.add_argument('--min-epochs', type=int, default=10) # 10
-    parser.add_argument("-hd", "--hidden-dim", default=2, type=int) #256
+    parser.add_argument("-hd", "--hidden-dim", default=256, type=int) #256 #2
     parser.add_argument('-ed','--embedding-dim', nargs='+', default=['768', '768', '768'])
     parser.add_argument("-nl", "--num-layers", default=2, type=int)
     parser.add_argument("-nh", "--num-heads", default=2, type=int)
@@ -437,6 +452,7 @@ if __name__ == '__main__':
     parser.add_argument("-vola", "--volatility_window", default=3, type=int)
     parser.add_argument("--data-dir", type=str, default="./")
     parser.add_argument("--save-dir", type=str, default="./results")
+    parser.add_argument("--plots", action="store_true")
     config = parser.parse_args()
 
     main(config)
