@@ -21,7 +21,8 @@ from sklearn.manifold import TSNE
 
 import matplotlib.pyplot as plt
 
-from model import MultimodalModel
+#from model import MultimodalModel
+from model_audio_text import MultimodalModel
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "MIG-ac3C47b3-456e-56ff-aa3e-5731e429d659"
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -66,6 +67,7 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
         loss.backward()
         
         # Save gradients
+        """
         total_norm = 0
         for param in model.parameters():
             if param.grad is not None:
@@ -73,6 +75,7 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
                 total_norm += param_norm.item() ** 2
         total_norm = total_norm ** 0.5
         grad_norms.append(total_norm)
+        """
         
         optimizer.step()
         
@@ -103,7 +106,7 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
         
         #if PLOTS:
         # Plot attention maps
-        if i == 1:
+        if i == 0:
             for key in attention_scores_cross_transformer:
                 fig, axes = plt.subplots(len(attention_scores_cross_transformer[key]), 1, figsize=(0.3*attention_scores_cross_transformer[key][0].shape[0],4*len(attention_scores_cross_transformer[key])))
                 count = 0
@@ -118,7 +121,6 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
                     ax.set_xticklabels(x_tick_labels)
                     ax.set_title(date[1]+" "+date[0].strftime('%B %d, %Y'))
                     count += 1
-                break
 
                 cbar = plt.colorbar(im, ax=axes.tolist(), pad=0.02)
                 cbar.set_label('Color Scale')
@@ -127,12 +129,13 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
                 plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/attention_map_{key}_fold_{fold}_epoch_{epoch}_batch_{i}.png')
 
         if PLOTS:
-            # Plot weight distributions
-            weight_distribution_info = []
-            for name, param in model.named_parameters():
-                if param.requires_grad and 'bias' not in name:
-                    weight_distribution_info.append((name, param.data.clone().cpu().numpy()))
-            weight_distributions.append(weight_distribution_info)
+        # Plot weight distributions
+            if i == 0:
+                weight_distribution_info = []
+                for name, param in model.named_parameters():
+                    if param.requires_grad and 'bias' not in name:
+                        weight_distribution_info.append((name, param.data.clone().cpu().numpy()))
+                weight_distributions.append(weight_distribution_info)
         
         current_loss += loss.item()
         outputs.detach()
@@ -325,6 +328,7 @@ def main(config):
                     break
                     
             # Visualize Gradients
+            """
             plt.figure(figsize=(10, 6))
             plt.plot(range(1, len(grad_norms) + 1), grad_norms, marker='o', linestyle='-')
             plt.xlabel('Epochs')
@@ -332,6 +336,7 @@ def main(config):
             plt.title('Gradient Norms Over Epochs')
             plt.grid(True)
             plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/gradients_fold_{fold}_epoch_{epoch / BATCH_SIZE}.png')
+            """
 
             # Visualize weight distributions and their corresponding names
             if PLOTS:
@@ -352,7 +357,7 @@ def main(config):
                         plt.legend()
                         plt.grid(True)
                         plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/weight_distributions/weight_distributions_fold_{fold}_epoch_{j}__layer_{name}.png')
-            
+            if PLOTS:
                 # Plot activation histograms
                 activations_plot_dict = {}
                 for layer_dict in activations:
@@ -432,7 +437,7 @@ if __name__ == '__main__':
     optimizer_set = {"adam", "adamw"}
 
     parser = argparse.ArgumentParser(description="Multimodal Transformer")
-    parser.add_argument("-lr", "--learning-rate", default=1e-5, type=float)
+    parser.add_argument("-lr", "--learning-rate", default=1e-5, type=float) #1e-5
     parser.add_argument("-bs", "--batch-size", default=8, type=int) # 32 # 2
     parser.add_argument("-e", "--epochs", default=30, type=int) # 10
     parser.add_argument('--patience', type=int, default=10) # 10
@@ -447,7 +452,7 @@ if __name__ == '__main__':
     parser.add_argument("-sm", "--subclip-maxlen", default=-1, type=int)
     parser.add_argument("--optimizer", type=str, choices=optimizer_set, default="adamw")
     parser.add_argument("--use-scheduler", action="store_false")
-    parser.add_argument("--movement", action="store_false") # store_true
+    parser.add_argument("--movement", action="store_true") # store_true
     parser.add_argument("-o", "--offset", default=2, type=int)
     parser.add_argument("-vola", "--volatility_window", default=3, type=int)
     parser.add_argument("--data-dir", type=str, default="./")

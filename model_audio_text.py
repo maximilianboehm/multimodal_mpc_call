@@ -146,7 +146,7 @@ class MultimodalCrossTransformer(nn.Module):
         #self.video_to_text_attention = CrossModalAttention2(input_dim, num_heads)
         self.audio_to_text_attention = CrossModalAttention2(input_dim, num_heads)
         
-    def forward(self, video, audio, text):
+    def forward(self, audio, text):
         # Video Modality
         #print("MultimodalCrossTransformer: ")
         #audio_to_video, av_attention_scores = self.audio_to_video_attention(audio, video)
@@ -176,15 +176,16 @@ class MultimodalCrossTransformer(nn.Module):
         attention_scores = {"ta_attention_scores": ta_attention_scores,
                            "at_attention_scores": at_attention_scores}
         
-        return [audio_attention, text_attention], attention_scores
+        #return [audio_attention, text_attention], attention_scores
+        return [text_to_audio, audio_to_text], attention_scores
         
         
 class TemporalEnsemble(nn.Module):
     def __init__(self, num_layers, input_dim):
         super(TemporalEnsemble, self).__init__()
-        
-        self.transformers = nn.ModuleList([nn.Transformer(d_model=input_dim*2, nhead=3, num_encoder_layers=num_layers, num_decoder_layers=num_layers, dim_feedforward=input_dim*4) for _ in range(2)])
-        self.feedforward = nn.Linear(input_dim*4, input_dim) # change to simple MLP with Relu?
+        self.input_dim = input_dim
+        self.transformers = nn.ModuleList([nn.Transformer(d_model=input_dim, nhead=3, num_encoder_layers=num_layers, num_decoder_layers=num_layers, dim_feedforward=input_dim*4) for _ in range(2)])
+        self.feedforward = nn.Linear(input_dim*2, input_dim) # change to simple MLP with Relu?
         
     def forward(self, hidden_states_list):
         #print("TemporalEnsemble:")

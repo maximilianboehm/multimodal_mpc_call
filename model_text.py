@@ -354,23 +354,25 @@ class MultimodalModel(nn.Module):
         #print("text shape:", text.shape)
         #print("mask shape:", mask.shape)
         #print("sub_clip shape", subclip_mask.shape)
-        video_conv1d_pe = self.video_conv1d_pe(video, subclip_mask)
-        audio_conv1d_pe = self.audio_conv1d_pe(audio, mask)
+        #video_conv1d_pe = self.video_conv1d_pe(video, subclip_mask)
+        #audio_conv1d_pe = self.audio_conv1d_pe(audio, mask)
         text_conv1d_pe = self.text_conv1d_pe(text, mask)
         
-        hidden_states, attention_scores_cross_transformer = self.multimodal_cross_transformer(video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe)
+        #hidden_states, attention_scores_cross_transformer = self.multimodal_cross_transformer(video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe)
         
-        concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
+        #concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
         
-        fused_rep = self.modality_specific_self_attention([video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe])
+        self_attetnion = self.modality_specific_self_attention(text_conv1d_pe)
         
-        combined_representation = self.temporal_ensemble_with_fusion(concatenated_temporal_rep, fused_rep)
+        #combined_representation = self.temporal_ensemble_with_fusion(concatenated_temporal_rep, fused_rep)
         
         #combined_representation = combined_representation.view(combined_representation.shape[0], -1)
         
         #print(combined_representation.size())
         #print("Mask ", mask.size())
         #print("subclip Mask ", subclip_mask.size())
+        
+############## Hier printen welche shape self_attention hat und die self_attention dann als input in die MLPs geben
         
         padded_flat_input = torch.zeros(combined_representation.size(0), self.max_len * combined_representation.size(2), device=combined_representation.device)
         #print(padded_flat_input.size())

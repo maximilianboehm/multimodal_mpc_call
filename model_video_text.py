@@ -48,7 +48,7 @@ class TemporalConvolutionalLayer(nn.Module):
         #print(x.size())
         return x
         
-# Currently not used     
+# Currently not used
 class CrossModalAttention(nn.Module):
     def __init__(self, input_dim, num_heads):
         super(CrossModalAttention, self).__init__()
@@ -137,58 +137,55 @@ class CrossModalAttention2(nn.Module):
 class MultimodalCrossTransformer(nn.Module):
     def __init__(self, input_dim, num_heads):
         super(MultimodalCrossTransformer, self).__init__()
-        self.audio_to_video_attention = CrossModalAttention2(input_dim, num_heads)
+        #self.audio_to_video_attention = CrossModalAttention2(input_dim, num_heads)
         self.text_to_video_attention = CrossModalAttention2(input_dim, num_heads)
         
-        self.video_to_audio_attention = CrossModalAttention2(input_dim, num_heads)
-        self.text_to_audio_attention = CrossModalAttention2(input_dim, num_heads)
+        #self.video_to_audio_attention = CrossModalAttention2(input_dim, num_heads)
+        #self.text_to_audio_attention = CrossModalAttention2(input_dim, num_heads)
         
         self.video_to_text_attention = CrossModalAttention2(input_dim, num_heads)
-        self.audio_to_text_attention = CrossModalAttention2(input_dim, num_heads)
+        #self.audio_to_text_attention = CrossModalAttention2(input_dim, num_heads)
         
-    def forward(self, video, audio, text):
+    def forward(self, video, text):
         # Video Modality
         #print("MultimodalCrossTransformer: ")
-        audio_to_video, av_attention_scores = self.audio_to_video_attention(audio, video)
+        #audio_to_video, av_attention_scores = self.audio_to_video_attention(audio, video)
         #print("audio_to_video", audio_to_video.size())
         text_to_video, tv_attention_scores = self.text_to_video_attention(text, video)
         #print("text_to_video", text_to_video.size())
-        video_attention  = torch.cat([audio_to_video, text_to_video], dim=-1)
+        #video_attention  = torch.cat([audio_to_video, text_to_video], dim=-1)
         #print("video_attention", video_attention.size())
         
         # Audio Modality
-        video_to_audio, va_attention_scores = self.video_to_audio_attention(video, audio)
+        #video_to_audio, va_attention_scores = self.video_to_audio_attention(video, audio)
         #print("video_to_audio", video_to_audio.size())
-        text_to_audio, ta_attention_scores = self.text_to_audio_attention(text, audio)
+        #text_to_audio, ta_attention_scores = self.text_to_audio_attention(text, audio)
         #print("text_to_audio", text_to_audio.size())
-        audio_attention = torch.cat([video_to_audio, text_to_audio], dim=-1)
+        #audio_attention = torch.cat([video_to_audio, text_to_audio], dim=-1)
         #print("audio_attention", audio_attention.size())
         
         # Text Modality
         video_to_text, vt_attention_scores = self.video_to_text_attention(video, text)
         #print("video_to_text", video_to_text.size())
-        audio_to_text, at_attention_scores = self.audio_to_text_attention(audio, text)
+        #audio_to_text, at_attention_scores = self.audio_to_text_attention(audio, text)
         #print("audio_to_text", audio_to_text.size())
-        text_attention = torch.cat([video_to_text, audio_to_text], dim=-1)
+        #text_attention = torch.cat([video_to_text, audio_to_text], dim=-1)
         #print("text_attention", text_attention.size())
         
         # Dict to store attention scores
-        attention_scores = {"av_attention_scores": av_attention_scores,
-                           "tv_attention_scores": tv_attention_scores,
-                           "va_attention_scores": va_attention_scores,
-                           "ta_attention_scores": ta_attention_scores,
-                           "vt_attention_scores": vt_attention_scores,
-                           "at_attention_scores": at_attention_scores}
+        attention_scores = {"tv_attention_scores": tv_attention_scores,
+                           "vt_attention_scores": vt_attention_scores}
         
-        return [video_attention, audio_attention, text_attention], attention_scores
+        #return [audio_attention, text_attention], attention_scores
+        return [text_to_video, video_to_text], attention_scores
         
         
 class TemporalEnsemble(nn.Module):
     def __init__(self, num_layers, input_dim):
         super(TemporalEnsemble, self).__init__()
-        
-        self.transformers = nn.ModuleList([nn.Transformer(d_model=input_dim*2, nhead=3, num_encoder_layers=num_layers, num_decoder_layers=num_layers, dim_feedforward=input_dim*4) for _ in range(3)])
-        self.feedforward = nn.Linear(input_dim*6, input_dim) # change to simple MLP with Relu?
+        self.input_dim = input_dim
+        self.transformers = nn.ModuleList([nn.Transformer(d_model=input_dim, nhead=3, num_encoder_layers=num_layers, num_decoder_layers=num_layers, dim_feedforward=input_dim*4) for _ in range(2)])
+        self.feedforward = nn.Linear(input_dim*2, input_dim) # change to simple MLP with Relu?
         
     def forward(self, hidden_states_list):
         #print("TemporalEnsemble:")
@@ -211,13 +208,13 @@ class ModalitySpecificAttentionFusion(nn.Module):
     def __init__(self, input_dim):
         super(ModalitySpecificAttentionFusion, self).__init__()
         
-        self.W_prime = nn.ModuleList([nn.Linear(input_dim, input_dim) for _ in range(3)])
+        self.W_prime = nn.ModuleList([nn.Linear(input_dim, input_dim) for _ in range(2)])
         self.softmax = nn.Softmax(dim=0)
         
     def forward(self, representations):
         #print("ModalitySpecificAttentionFusion:")
         attention_weights = []
-        for alpha in range(3):
+        for alpha in range(2):
             #print("representations ", representations[alpha].size())
             W_prime_alpha = self.W_prime[alpha](representations[alpha])
             #print("W_prime_alpha ", W_prime_alpha.size())
@@ -237,9 +234,9 @@ class ModalitySpecificAttentionFusion(nn.Module):
         
         #fused_representation = torch.sum(torch.cat([normalized_attention_weights[:, :, alpha] * representations[alpha].unsqueeze(-1) for alpha in range(3)], dim=-1),dim=-1)
 
-        fused_representation = [normalized_attention_weights[:, :, alpha].unsqueeze(-1).expand(-1, -1, 768) * representations[alpha] for alpha in range(3)]
+        fused_representation = [normalized_attention_weights[:, :, alpha].unsqueeze(-1).expand(-1, -1, 768) * representations[alpha] for alpha in range(2)]
         
-        final_fused_representation = fused_representation[0] + fused_representation[1] + fused_representation[2]
+        final_fused_representation = fused_representation[0] + fused_representation[1]
         
         #print("final_fused_representation ", final_fused_representation.size())
         
@@ -276,7 +273,7 @@ class MultimodalModel(nn.Module):
         self.max_len = max_len
         
         self.video_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
-        self.audio_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
+        #self.audio_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
         self.text_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
         
         self.multimodal_cross_transformer = MultimodalCrossTransformer(embedding_dim[0], num_heads)
@@ -320,7 +317,7 @@ class MultimodalModel(nn.Module):
             self.asset_price_movement_mlp_index_large = nn.Sequential(
                 nn.Linear(embedding_dim[0]*max_len, hidden_dim),
                 nn.Linear(hidden_dim, 1),
-                nn.Sigmoid() # Change Sigmoid to Relu, ...
+                nn.Sigmoid()
             )
             self.asset_price_movement_mlp_index_small = nn.Sequential(
                 nn.Linear(embedding_dim[0]*max_len, hidden_dim), 
@@ -355,14 +352,15 @@ class MultimodalModel(nn.Module):
         #print("mask shape:", mask.shape)
         #print("sub_clip shape", subclip_mask.shape)
         video_conv1d_pe = self.video_conv1d_pe(video, subclip_mask)
-        audio_conv1d_pe = self.audio_conv1d_pe(audio, mask)
+        #audio_conv1d_pe = self.audio_conv1d_pe(audio, mask)
         text_conv1d_pe = self.text_conv1d_pe(text, mask)
         
-        hidden_states, attention_scores_cross_transformer = self.multimodal_cross_transformer(video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe)
+        #hidden_states, attention_scores_cross_transformer = self.multimodal_cross_transformer(video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe)
+        hidden_states, attention_scores_cross_transformer = self.multimodal_cross_transformer(video_conv1d_pe, text_conv1d_pe)
         
         concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
         
-        fused_rep = self.modality_specific_self_attention([video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe])
+        fused_rep = self.modality_specific_self_attention([audio_conv1d_pe, text_conv1d_pe])
         
         combined_representation = self.temporal_ensemble_with_fusion(concatenated_temporal_rep, fused_rep)
         

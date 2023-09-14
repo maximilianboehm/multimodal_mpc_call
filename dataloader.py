@@ -73,7 +73,10 @@ def get_target(df_target, curr_date_parsed, offset, ctry, movement=False, volati
         average_return = last_x_days_rows["Return"].mean()
         last_x_days_rows["Variance"] = (last_x_days_rows["Return"] - average_return) ** 2
         var_sum = last_x_days_rows["Variance"].sum()
-        volatility = np.log(np.sqrt(var_sum / volatility_window)) 
+        if var_sum / volatility_window == 0:
+            volatility = 0
+        else:
+            volatility = np.log(np.sqrt(var_sum / volatility_window)) 
         
         # Volatility
         return volatility, parser.parse(target_date)
