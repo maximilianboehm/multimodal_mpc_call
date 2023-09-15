@@ -360,7 +360,7 @@ class MultimodalModel(nn.Module):
         
         concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
         
-        fused_rep = self.modality_specific_self_attention([audio_conv1d_pe, text_conv1d_pe])
+        fused_rep = self.modality_specific_self_attention([video_conv1d_pe, text_conv1d_pe])
         
         combined_representation = self.temporal_ensemble_with_fusion(concatenated_temporal_rep, fused_rep)
         
