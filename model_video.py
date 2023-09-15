@@ -250,9 +250,9 @@ class MultimodalModel(nn.Module):
         self.hidden_dim = hidden_dim
         self.max_len = max_len
         
-        #self.video_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
+        self.video_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
         #self.audio_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
-        self.text_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
+        #self.text_conv1d_pe = TemporalConvolutionalLayer(embedding_dim[0], embedding_dim[0], max_len, dropout)
         
         #self.multimodal_cross_transformer = MultimodalCrossTransformer(embedding_dim[0], num_heads)
         
@@ -329,15 +329,15 @@ class MultimodalModel(nn.Module):
         #print("text shape:", text.shape)
         #print("mask shape:", mask.shape)
         #print("sub_clip shape", subclip_mask.shape)
-        #video_conv1d_pe = self.video_conv1d_pe(video, subclip_mask)
+        video_conv1d_pe = self.video_conv1d_pe(video, subclip_mask)
         #audio_conv1d_pe = self.audio_conv1d_pe(audio, mask)
-        text_conv1d_pe = self.text_conv1d_pe(text, mask)
+        #text_conv1d_pe = self.text_conv1d_pe(text, mask)
         
         #hidden_states, attention_scores_cross_transformer = self.multimodal_cross_transformer(video_conv1d_pe, audio_conv1d_pe, text_conv1d_pe)
         
         #concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
         
-        self_attention = self.modality_specific_self_attention(text_conv1d_pe)
+        self_attention = self.modality_specific_self_attention(video_conv1d_pe)
         
         # Just helper so code below does not need to be changed. Actually no combined representation
         combined_representation = self_attention
