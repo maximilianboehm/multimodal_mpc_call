@@ -118,7 +118,7 @@ class CrossModalAttention2(nn.Module):
         Z_i_alpha_beta = self.layer_norm(Zi_1_alpha_beta)
         Z_i_alpha = self.layer_norm(Zi_1_alpha)
 
-        cross_modal_adaption, _ = self.multihead_attention(
+        cross_modal_adaption, attn_output_weights = self.multihead_attention(
             Z_i_alpha_beta.permute(1, 0, 2),
             Z_i_alpha.permute(1, 0, 2),
             Z_i_alpha.permute(1, 0, 2)
@@ -131,7 +131,7 @@ class CrossModalAttention2(nn.Module):
         z_i_alpha_to_beta_ff = self.W_ff(z_i_alpha_to_beta_intermediate)
         z_i_alpha_to_beta_final = self.layer_norm(z_i_alpha_to_beta_intermediate + z_i_alpha_to_beta_ff)
 
-        return z_i_alpha_to_beta_final, cross_modal_adaption
+        return z_i_alpha_to_beta_final, attn_output_weights
 
         
 class MultimodalCrossTransformer(nn.Module):
@@ -224,6 +224,8 @@ class ModalitySpecificAttentionFusion(nn.Module):
         #print("sum_W_prime ", sum_W_prime.size())
         
         normalized_attention_weights = self.softmax(sum_W_prime)
+        attention_weights = {"audio_self_att": normalized_attention_weights[:, :, 0].unsqueeze(-1).expand(-1, -1, 768),
+                            "text_self_att": normalized_attention_weights[:, :, 1].unsqueeze(-1).expand(-1, -1, 768)}
         #print("normalized_attention_weights ", normalized_attention_weights.size())
         #print("normalized_attention_weights[:, :, 0]", normalized_attention_weights[:, :, 0].size())
         #print("representations[0].unsqueeze(-1)", representations[0].size())
@@ -240,7 +242,7 @@ class ModalitySpecificAttentionFusion(nn.Module):
         
         #print("final_fused_representation ", final_fused_representation.size())
         
-        return final_fused_representation
+        return final_fused_representation, attention_weights
     
     
 class TemporalEnsembleWithFusion(nn.Module):
@@ -360,7 +362,7 @@ class MultimodalModel(nn.Module):
         
         concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
         
-        fused_rep = self.modality_specific_self_attention([audio_conv1d_pe, text_conv1d_pe])
+        fused_rep, attention_scores_self_att = self.modality_specific_self_attention([audio_conv1d_pe, text_conv1d_pe])
         
         combined_representation = self.temporal_ensemble_with_fusion(concatenated_temporal_rep, fused_rep)
         
@@ -392,4 +394,4 @@ class MultimodalModel(nn.Module):
             ten_y_bond_output = self.asset_price_movement_mlp_10_y_bond(padded_flat_input)
             three_m_bond_output = self.asset_price_movement_mlp_3_m_bond(padded_flat_input)
         
-        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1), attention_scores_cross_transformer
+        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1), attention_scores_cross_transformer, attention_scores_self_att

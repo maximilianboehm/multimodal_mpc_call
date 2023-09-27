@@ -116,7 +116,7 @@ class CrossModalAttention2(nn.Module):
         Z_i_alpha_beta = self.layer_norm(Zi_1_alpha_beta)
         Z_i_alpha = self.layer_norm(Zi_1_alpha)
 
-        cross_modal_adaption, _ = self.multihead_attention(
+        cross_modal_adaption, attn_output_weights = self.multihead_attention(
             Z_i_alpha_beta.permute(1, 0, 2),
             Z_i_alpha.permute(1, 0, 2),
             Z_i_alpha.permute(1, 0, 2)
@@ -129,7 +129,7 @@ class CrossModalAttention2(nn.Module):
         z_i_alpha_to_beta_ff = self.W_ff(z_i_alpha_to_beta_intermediate)
         z_i_alpha_to_beta_final = self.layer_norm(z_i_alpha_to_beta_intermediate + z_i_alpha_to_beta_ff)
 
-        return z_i_alpha_to_beta_final, cross_modal_adaption
+        return z_i_alpha_to_beta_final, attn_output_weights
 
         
 class MultimodalCrossTransformer(nn.Module):
@@ -215,6 +215,8 @@ class ModalitySpecificAttentionFusion(nn.Module):
     def forward(self, representation):
         W_prime_alpha = self.W_prime(representation)
         normalized_attention_weight = self.softmax(W_prime_alpha)
+        
+        #attention_weights = {"audio_self_att": normalized_attention_weights.unsqueeze(-1).expand(-1, -1, 768)}
         
         fused_representation = normalized_attention_weight * representation
         
@@ -337,7 +339,7 @@ class MultimodalModel(nn.Module):
         
         #concatenated_temporal_rep = self.temporal_ensemble(hidden_states)
         
-        self_attention = self.modality_specific_self_attention(audio_conv1d_pe)
+        self_attention, att_weights = self.modality_specific_self_attention(audio_conv1d_pe)
         
         # Just helper so code below does not need to be changed. Actually no combined representation
         combined_representation = self_attention
@@ -377,4 +379,4 @@ class MultimodalModel(nn.Module):
         # Helper so Code does not have to be changed
         attention_scores_cross_transformer = {"No attention scores provided for this model": torch.zeros(2, 3, 4)}
         
-        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1), attention_scores_cross_transformer
+        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1), attention_scores_cross_transformer, attention_scores_cross_transformer

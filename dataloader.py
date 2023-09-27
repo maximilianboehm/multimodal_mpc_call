@@ -134,8 +134,8 @@ class MultimodalDataset(torch.utils.data.Dataset):
                         label, timestamp = get_target(df_subset, parsed_date, offset, ctry, movement, volatility_window)
                         labels.append(label)
                     videofile = os.path.join(folderpath, "video_fragments.npz")
-                    transcriptfile = os.path.join(folderpath, "bert_embeddings.npz")
-                    audiofile = os.path.join(folderpath, "wav2vec2_embs.npz")
+                    transcriptfile = os.path.join(folderpath, "fin_bert_embeddings.npz")
+                    audiofile = os.path.join(folderpath, "wav2_vec2_finetuned_embeddings.npz")
                     if exists(videofile) and exists(transcriptfile) and exists(audiofile):
                         video_embs = np.load(videofile, allow_pickle=True)['arr_0']
                         if self.subclip_maxlen==-1:

@@ -4,6 +4,9 @@ import json
 from tqdm import tqdm
 from datetime import datetime
 
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+
 import numpy as np
 from sklearn.metrics import mean_squared_error, classification_report, matthews_corrcoef, f1_score
 from sklearn.model_selection import KFold
@@ -17,15 +20,13 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DataParallel
 from transformers import AdamW, get_cosine_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup
 
+print(torch.cuda.device_count())
+
 from sklearn.manifold import TSNE
 
 import matplotlib.pyplot as plt
 
-#from model import MultimodalModel
-from model_audio_text import MultimodalModel
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "MIG-ac3C47b3-456e-56ff-aa3e-5731e429d659"
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+from model import MultimodalModel
 
 def pad_collate(batch):
     target = np.array([item[0] for item in batch], dtype=np.float32)
@@ -62,7 +63,7 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
         timestamps = timestamp
         
         optimizer.zero_grad()
-        outputs, attention_scores_cross_transformer = model(video, audio, text, mask, subclip_masks)
+        outputs, attention_scores_cross_transformer, attention_scores_self_att = model(video, audio, text, mask, subclip_masks)
         loss = loss_function(outputs, targets)
         loss.backward()
         
@@ -106,6 +107,30 @@ def train(fold, model, device, trainloader, optimizer, loss_function, epoch, gra
         
         #if PLOTS:
         # Plot attention maps
+        # Self attention
+        if i == 0:
+            for key in attention_scores_self_att:
+                fig, axes = plt.subplots(len(attention_scores_self_att[key]), 1, figsize=(0.3*attention_scores_self_att[key][0].shape[0],4*len(attention_scores_self_att[key])))
+                count = 0
+                for ax, heatmap, date in zip(axes, attention_scores_self_att[key], timestamps):
+                    heatmap = heatmap.detach().cpu().numpy()
+                    heatmap = heatmap.T
+                    im = ax.imshow(heatmap, cmap='viridis', interpolation='nearest', aspect='auto')
+                    x_ticks = range(heatmap.shape[1])  # Adjust this as needed
+                    ax.set_xticks(x_ticks)
+                    #ax.set_xticklabels(x_ticks)
+                    x_tick_labels = [str(label) if label % 2 == 0 else "" for label in x_ticks]
+                    ax.set_xticklabels(x_tick_labels)
+                    ax.set_title(date[1]+" "+date[0].strftime('%B %d, %Y'))
+                    count += 1
+
+                cbar = plt.colorbar(im, ax=axes.tolist(), pad=0.02)
+                cbar.set_label('Color Scale')
+                cbar.ax.set_ylabel('Label on Color Bar', rotation=270, labelpad=20)
+                cbar.ax.tick_params(axis='y', length=0, width=0, pad=10)
+                plt.savefig(f'/home/jovyan/multimodal_mpc_call/plots/self_attention_map_{key}_fold_{fold}_epoch_{epoch}_batch_{i}.png')
+        
+        # Cross attention plots
         if i == 0:
             for key in attention_scores_cross_transformer:
                 fig, axes = plt.subplots(len(attention_scores_cross_transformer[key]), 1, figsize=(0.3*attention_scores_cross_transformer[key][0].shape[0],4*len(attention_scores_cross_transformer[key])))
@@ -158,7 +183,7 @@ def test(fold, model, device, testloader, results, movement=False, val=False):
             targets = targets.to(device)
             mask = mask.to(device)
             subclip_masks = subclip_masks.to(device)
-            outputs, _ = model(video, audio, text, mask, subclip_masks)
+            outputs, _, _ = model(video, audio, text, mask, subclip_masks)
             if movement:
                 outputs = F.sigmoid(outputs) > 0.5
             preds.extend(outputs.detach().cpu().numpy())
@@ -169,7 +194,7 @@ def test(fold, model, device, testloader, results, movement=False, val=False):
     true = np.array(true)
     if not movement:
         res_list = [mean_squared_error(true[:, i], preds[:, i], squared=False) for i in range(true[0].shape[-1])]
-        res['rmse'] = res_list
+        res['mse'] = res_list
     else:
         res_list = [f1_score(true[:, i], preds[:, i]) for i in range(true[0].shape[-1])]
         res['f1-score'] = res_list
@@ -244,6 +269,7 @@ def main(config):
         
         model.train()
         model.to(DEVICE)
+        model = nn.DataParallel(model)
         
         if OPTIMIZER=="adamw":
             optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
@@ -277,7 +303,7 @@ def main(config):
             if MOVEMENT:
                 metrik = "f1-score"
             else:
-                metrik = "rmse"
+                metrik = "mse"
                 
             sis_losses.append(results_val[fold][metrik][0])
             sil_losses.append(results_val[fold][metrik][1])
@@ -304,7 +330,7 @@ def main(config):
             if MOVEMENT:
                 print('Epoch %5d | Avg Train Loss %.3f | Val F1s %s'% (epoch, current_loss, str(results_val[fold]['f1-score'])))
             else:
-                print('Epoch %5d | Avg Train RMSE %.3f | Val RMSEs %s'% (epoch, np.sqrt(current_loss), str(results_val[fold]['rmse'])))
+                print('Epoch %5d | Avg Train MSE %.3f | Val MSEs %s'% (epoch, np.sqrt(current_loss), str(results_val[fold]['mse'])))
                 
             if scheduler is not None:
                 scheduler.step()
@@ -404,9 +430,9 @@ def main(config):
             sums.append(np.array(value['f1-score']))
             mccs.append(np.array(value['mcc']))
         else:
-            sums.append(np.array(value['rmse']))
+            sums.append(np.array(value['mse']))
     avgs = np.mean(sums, axis=0)
-    print(f'Average over N runs F1/RMSE: {avgs} %')
+    print(f'Average over N runs F1/MSE: {avgs} %')
     if MOVEMENT:
         avgs = np.mean(mccs, axis=0)
         print(f'Average over N runs MCC: {avgs} %')
@@ -438,8 +464,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="Multimodal Transformer")
     parser.add_argument("-lr", "--learning-rate", default=1e-5, type=float) #1e-5
-    parser.add_argument("-bs", "--batch-size", default=8, type=int) # 32 # 2
-    parser.add_argument("-e", "--epochs", default=30, type=int) # 10
+    parser.add_argument("-bs", "--batch-size", default=4, type=int) # 32 # 2
+    parser.add_argument("-e", "--epochs", default=22, type=int) # 10
     parser.add_argument('--patience', type=int, default=10) # 10
     parser.add_argument('--min-epochs', type=int, default=10) # 10
     parser.add_argument("-hd", "--hidden-dim", default=256, type=int) #256 #2
@@ -456,7 +482,7 @@ if __name__ == '__main__':
     parser.add_argument("-o", "--offset", default=2, type=int)
     parser.add_argument("-vola", "--volatility_window", default=3, type=int)
     parser.add_argument("--data-dir", type=str, default="./")
-    parser.add_argument("--save-dir", type=str, default="./results")
+    parser.add_argument("--save-dir", type=str, default="./results_vat_base")
     parser.add_argument("--plots", action="store_true")
     config = parser.parse_args()
 

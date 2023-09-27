@@ -216,6 +216,8 @@ class ModalitySpecificAttentionFusion(nn.Module):
         W_prime_alpha = self.W_prime(representation)
         normalized_attention_weight = self.softmax(W_prime_alpha)
         
+        #attention_weights = {"text_self_att": normalized_attention_weights.unsqueeze(-1).expand(-1, -1, 768)}
+        
         fused_representation = normalized_attention_weight * representation
         
         return fused_representation
@@ -350,7 +352,6 @@ class MultimodalModel(nn.Module):
         #print("Mask ", mask.size())
         #print("subclip Mask ", subclip_mask.size())
         
-############## Hier printen welche shape self_attention hat und die self_attention dann als input in die MLPs geben
     
         padded_flat_input = torch.zeros(combined_representation.size(0), self.max_len * combined_representation.size(2), device=combined_representation.device)
         #print(padded_flat_input.size())
@@ -377,4 +378,4 @@ class MultimodalModel(nn.Module):
         # Helper so Code does not have to be changed
         attention_scores_cross_transformer = {"No attention scores provided for this model": torch.zeros(2, 3, 4)}
         
-        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1), attention_scores_cross_transformer
+        return torch.cat([index_large_output, index_small_output, gold_output, dollar_output, ten_y_bond_output, three_m_bond_output],dim=1), attention_scores_cross_transformer, attention_scores_cross_transformer
