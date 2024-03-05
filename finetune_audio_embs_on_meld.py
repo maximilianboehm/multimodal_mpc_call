@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import torchaudio
 import torch
 
