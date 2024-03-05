@@ -12,14 +12,43 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
 
+bank_target_dict = {
+    'scripts_boc': "Canada.numbers",
+    'scripts_boe': "England.numbers",
+    'scripts_bonz': "New Zealand.numbers",
+    'scripts_ecb': "Europe.numbers",
+    'scripts_frb': "US.numbers",
+    'scripts_bosa': "South Africa.numbers",
+}
+
 def exists(path):
+    """
+    Check if a file exists at the given path.
+
+    Parameters:
+    - path (str): The path to the file.
+
+    Returns:
+    - bool: True if a file exists at the specified path, False otherwise.
+    """
     ans = os.path.isfile(path)
     return ans
 
-bank_target_dict = {'scripts_boc': "Canada.numbers", 'scripts_boe': "England.numbers", 'scripts_bonz': "New Zealand.numbers", 'scripts_ecb': "Europe.numbers", 'scripts_frb': "US.numbers", 'scripts_bosa': "South Africa.numbers"}
-
 def load_labels_df(path):
-    print(path)
+    """
+    Load data from a spreadsheet file into a Pandas DataFrame.
+
+    This function loads data from the first table in the first sheet of 
+    the specified spreadsheet file.
+    It skips the first row assuming it contains column headers.
+
+    Parameters:
+    - path (str): The path to the spreadsheet file.
+
+    Returns:
+    - df (pandas.DataFrame): A DataFrame containing the data from the 
+        spreadsheet.
+    """
     doc = Document(path)
     sheets = doc.sheets
     tables = sheets[0].tables
@@ -29,14 +58,73 @@ def load_labels_df(path):
     return df
 
 def get_subset(df, target_var=1):
+    """
+    Extract a subset of a DataFrame containing date and target
+    variable columns.
+
+    This function extracts a subset of the input DataFrame,
+    containing the specified target variable (assumed to be every
+    other column starting from the second column), along with the 
+    corresponding date column (one column before the target variable 
+    column).
+
+    Parameters:
+    - df (pandas.DataFrame): The DataFrame containing the data.
+    - target_var (int): The index of the target variable in the DataFrame.
+        Default is 1.
+
+    Returns:
+    - df_sub (pandas.DataFrame): A subset of the input DataFrame containing
+        date and target variable columns.
+    """
     n = target_var
     target_col_idx = 2*n
     date_col_idx = target_col_idx - 1
     df_sub = df[[date_col_idx, target_col_idx]].dropna()
-    df_sub = df_sub.rename(columns=df_sub.iloc[0]).drop(df_sub.index[0]).reset_index(drop=True)
+    df_sub = df_sub.rename(
+        columns=df_sub.iloc[0]
+    ).drop(df_sub.index[0]).reset_index(drop=True)
     return df_sub
 
-def get_target(df_target, curr_date_parsed, offset, ctry, movement=False, volatility_window=1):
+def get_target(
+    df_target,
+    curr_date_parsed,
+    offset,
+    ctry,
+    movement=False,
+    volatility_window=1,
+):
+    """
+    Get the target variable value and date for a given offset from the
+    current date.
+
+    This function retrieves the target variable value and date for a 
+    specified offset from the current date.
+    It also calculates the volatility if the 'movement' parameter is 
+    set to False.
+
+    Parameters:
+    - df_target (pandas.DataFrame): The DataFrame containing target
+        variable data.
+    - curr_date_parsed (datetime.datetime): The current date parsed
+        as a datetime object.
+    - offset (int): The number of days offset from the current date.
+    - ctry (str): The country code or identifier.
+    - movement (bool): If True, calculate the movement between current
+        and target dates. Default is False.
+    - volatility_window (int): The window size for calculating volatility.
+        Default is 1.
+
+    Returns:
+    - If movement is True:
+        - movement (int): The movement between current and target dates 
+            (1 for increase, 0 for decrease).
+        - target_date (datetime.datetime): The target date.
+    - If movement is False:
+        - volatility (float): The calculated volatility.
+        - target_date (datetime.datetime): The target date.
+    """
+    
     target_date = curr_date_parsed + timedelta(days=offset)
     
     if ctry=="US.numbers" or ctry=="Europe.numbers" or ctry=="England.numbers":
