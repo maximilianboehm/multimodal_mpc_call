@@ -127,7 +127,11 @@ def get_target(
     
     target_date = curr_date_parsed + timedelta(days=offset)
     
-    if ctry=="US.numbers" or ctry=="Europe.numbers" or ctry=="England.numbers":
+    if (
+    ctry == "US.numbers" or
+    ctry == "Europe.numbers" or
+    ctry == "England.numbers"
+    ):
         target_date = target_date.strftime("%-m/%-d/%Y")
         curr_date = curr_date_parsed.strftime("%-m/%-d/%Y")
     else:
@@ -135,31 +139,48 @@ def get_target(
         curr_date = curr_date_parsed.strftime("%Y-%m-%d")
         
     if movement:
-        row_label_1 = df_target[df_target[df_target.columns[0]]==target_date]
-        row_label_2 = df_target[df_target[df_target.columns[0]]==curr_date]
+        row_label_1 = (
+            df_target[df_target[df_target.columns[0]]==target_date]
+        )
+        row_label_2 = (
+            df_target[df_target[df_target.columns[0]]==curr_date]
+        )
         
         if len(row_label_1) == 0 or len(row_label_2) == 0:
             return np.random.randint(0,2), parser.parse(target_date)
         
-        return int(row_label_1.values[0][1] > row_label_2.values[0][1]), parser.parse(target_date)
+        return int(row_label_1.values[0][1]
+                   > row_label_2.values[0][1]), parser.parse(target_date)
     
     else:
-        row_label = df_target[df_target[df_target.columns[0]]==target_date]
+        row_label = (
+            df_target[df_target[df_target.columns[0]]==target_date]
+        )
         
         if len(row_label)==0:
             return 0, parser.parse(target_date)
         
-        target_index = df_target[df_target[df_target.columns[0]] == target_date].index[0]
-        last_x_days_rows = df_target.iloc[target_index:target_index + volatility_window]
+        target_index = (
+            df_target[df_target[df_target.columns[0]] == target_date].index[0]
+        )
+        last_x_days_rows = (
+            df_target.iloc[target_index:target_index + volatility_window]
+        )
         
-        
-        # Calculate volatility with offset here. Use volatility equation from paper
-        #last_x_days_rows["Return"] = last_x_days_rows[last_x_days_rows.columns[1]].pct_change()
+        # Calculate volatility with offset here.
+        # Use volatility equation from paper
+        #last_x_days_rows["Return"] = (
+        #last_x_days_rows[last_x_days_rows.columns[1]].pct_change()
+        #)
         last_x_days_rows = last_x_days_rows.copy()
-        last_x_days_rows["Return"] = last_x_days_rows[last_x_days_rows.columns[1]].pct_change()
+        last_x_days_rows["Return"] = (
+            last_x_days_rows[last_x_days_rows.columns[1]].pct_change()
+        )
         last_x_days_rows = last_x_days_rows[1:]
         average_return = last_x_days_rows["Return"].mean()
-        last_x_days_rows["Variance"] = (last_x_days_rows["Return"] - average_return) ** 2
+        last_x_days_rows["Variance"] = (
+            (last_x_days_rows["Return"] - average_return) ** 2
+        )
         var_sum = last_x_days_rows["Variance"].sum()
         if var_sum / volatility_window == 0:
             volatility = 0
@@ -176,10 +197,13 @@ def get_target(
 class MultimodalDataset(torch.utils.data.Dataset):
     
     def __init__(self, data_path="../", subclip_maxlen=-1):
-        
         self.data_path = data_path
-        self.sub_data = ['scripts_boc', 'scripts_bonz', 'scripts_ecb', 'scripts_frb', 'scripts_bosa']
-        
+        self.sub_data = [
+            'scripts_boc',
+            'scripts_bonz',
+            'scripts_ecb',
+            'scripts_frb',
+            'scripts_bosa']
         self.text = []
         self.audio = []
         self.video = []
@@ -189,19 +213,52 @@ class MultimodalDataset(torch.utils.data.Dataset):
         self.subclip_mask = []
         self.subclip_maxlen = subclip_maxlen
     
-    def load_data(self, data_path=None, offset=1, movement=False, volatility_window=1):
+    def load_data(
+        self,
+        data_path=None,
+        offset=1,
+        movement=False,
+        volatility_window=1
+    ):
+        """
+        Load data from CSV files and associated embeddings.
+    
+        This method loads data from CSV files and associated
+        embeddings, preprocesses it, and stores it
+        in the appropriate data structures within the class instance.
+    
+        Parameters:
+        - data_path (str): The path to the directory containing
+            data files. If None, it uses the default data_path.
+        - offset (int): The number of days offset from the current
+            date for calculating target variables. Default is 1.
+        - movement (bool): If True, calculate the movement between
+            current and target dates. Default is False.
+        - volatility_window (int): The window size for calculating
+            volatility. Default is 1.
+    
+        Returns:
+        - None: The method modifies the internal state of the
+            class instance.
+        """
         errs = 0
         tot = 0
+        
         if data_path is None:
             data_path = self.data_path
+            
         for sub in tqdm(self.sub_data):
             print("Loading: ", sub)
-            root_folder = os.path.join(data_path, sub)
-            csvfile= [each for each in os.listdir(root_folder) if each.endswith('.csv')][0]
+            root_f = os.path.join(data_path, sub)
+            csvfile = (
+                [each for each in os.listdir(root_f) if each.endswith('.csv')][0]
+            )
             df = pd.read_csv(os.path.join(root_folder, csvfile), header=None)
             root_folder = os.path.join(root_folder, "data")
             ctry = bank_target_dict[sub]
-            df_target = load_labels_df(os.path.join(data_path, "price_data", ctry))
+            df_target = load_labels_df(
+                os.path.join(data_path, "price_data", ctry)
+            )
             for idx, row in tqdm(df.iterrows(), total=len(df)):
                 try:
                     tot+=1
@@ -219,7 +276,14 @@ class MultimodalDataset(torch.utils.data.Dataset):
                     labels = []
                     for i in range(6):
                         df_subset = get_subset(df_target, i+1)
-                        label, timestamp = get_target(df_subset, parsed_date, offset, ctry, movement, volatility_window)
+                        label, timestamp = get_target(
+                            df_subset,
+                            parsed_date,
+                            offset,
+                            ctry,
+                            movement,
+                            volatility_window
+                        )
                         labels.append(label)
                     videofile = os.path.join(folderpath, "video_fragments.npz")
                     transcriptfile = os.path.join(folderpath, "fin_bert_embeddings.npz")
@@ -259,21 +323,67 @@ class MultimodalDataset(torch.utils.data.Dataset):
         
         
     def make_splits(self, ratios = [0.7, 0.1, 0.2]):
+        """
+        Make train, validation, and test splits based on timestamps.
+    
+        This method splits the dataset into train, validation,
+        and test sets based on the specified ratios. It sorts the
+        indices of the dataset based on timestamps and divides them
+        according to the ratios.
+    
+        Parameters:
+        - ratios (list): A list containing the ratios for train,
+                         validation, and test sets respectively.
+                         Default is [0.7, 0.1, 0.2].
+    
+        Returns:
+        - train_idx (numpy.ndarray): An array of indices for the
+            train set.
+        - val_idx (numpy.ndarray): An array of indices for the
+            validation set.
+        - test_idx (numpy.ndarray): An array of indices for the
+            test set.
+        """
         indices = np.argsort(np.array(self.timestamps))
         n = len(indices)
         edges = [0, int(ratios[0]*n), int((ratios[0]+ratios[1])*n),n]
         train_idx = indices[edges[0]:edges[1]]
         val_idx = indices[edges[1]:edges[2]]
         test_idx = indices[edges[2]:edges[3]]
-        print(len(train_idx))
-        print(len(val_idx))
-        print(len(test_idx))
         return train_idx, val_idx, test_idx
     
     def __len__(self):
+        """
+        Get the length of the dataset.
+    
+        This method returns the number of samples in the dataset, 
+        which is determined by the length of the text data.
+    
+        Returns:
+        - int: The number of samples in the dataset.
+        """
         return len(self.text)
     
     def __getitem__(self, idx):
+        """
+        Retrieve data at the specified index.
+    
+        This method retrieves data at the specified index from the dataset.
+        It returns the label, video, audio, text, subclip mask, and
+        timestamp for the given index.
+    
+        Parameters:
+        - idx (int): The index of the data to retrieve.
+    
+        Returns:
+        - label: The label associated with the data.
+        - video: The video data.
+        - audio: The audio data as a PyTorch tensor with dtype torch.float.
+        - text: The text data as a PyTorch tensor with dtype torch.float.
+        - subclip_mask: The subclip mask as a PyTorch tensor with 
+            dtype torch.bool.
+        - timestamp: The timestamp associated with the data.
+        """
         label = self.labels[idx]
         video = self.video[idx]
         audio = torch.tensor(self.audio[idx], dtype=torch.float)
