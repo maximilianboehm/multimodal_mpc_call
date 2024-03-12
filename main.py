@@ -24,7 +24,7 @@ from sklearn.manifold import TSNE
 
 import matplotlib.pyplot as plt
 
-from model import MultimodalModel
+from src.model.model import MultimodalModel
 
 def pad_collate(batch):
     """
