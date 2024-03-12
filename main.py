@@ -1,3 +1,4 @@
+
 import argparse
 import os
 import json
@@ -5,7 +6,6 @@ from tqdm import tqdm
 from datetime import datetime
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 
 import numpy as np
 from sklearn.metrics import mean_squared_error, classification_report, matthews_corrcoef, f1_score
@@ -20,8 +20,6 @@ from torch.utils.data import Dataset, DataLoader
 from torch.nn.parallel import DataParallel
 from transformers import AdamW, get_cosine_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup
 
-print(torch.cuda.device_count())
-
 from sklearn.manifold import TSNE
 
 import matplotlib.pyplot as plt
@@ -29,6 +27,30 @@ import matplotlib.pyplot as plt
 from model import MultimodalModel
 
 def pad_collate(batch):
+    """
+    Custom collate function for padding sequences in a batch.
+
+    Parameters:
+    - batch (list): A list of tuples containing the elements of a batch.
+        Each tuple consists of:
+        - target (np.ndarray): Target values.
+        - video (list): List of video embeddings.
+        - audio (list): List of audio embeddings.
+        - text (list): List of text embeddings.
+        - subclip_masks (list): List of subclip masks.
+        - timestamps (list): List of timestamps.
+
+    Returns:
+    - list: A list containing the padded sequences and associated masks.
+        The list includes:
+        - target (torch.Tensor): Padded target values.
+        - video (torch.Tensor): Padded video embeddings.
+        - audio (torch.Tensor): Padded audio embeddings.
+        - text (torch.Tensor): Padded text embeddings.
+        - mask (torch.Tensor): Mask for the padded sequences.
+        - subclip_masks (torch.Tensor): Padded subclip masks.
+        - timestamps (list): List of timestamps.
+    """
     target = np.array([item[0] for item in batch], dtype=np.float32)
     video = [item[1] for item in batch]
     audio = [item[2] for item in batch]
@@ -46,7 +68,6 @@ def pad_collate(batch):
     target = torch.tensor(target)
     mask = torch.arange(video.shape[1]).expand(len(lens), video.shape[1]) < lens.unsqueeze(1)
     mask = mask
-    # print(target)
     return [target, video, audio, text, mask, subclip_masks, timestamps]
 
 def train(fold, model, device, trainloader, optimizer, loss_function, epoch, grad_norms, activations, weight_distributions, PLOTS):

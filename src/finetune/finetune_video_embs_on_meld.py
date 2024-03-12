@@ -2,7 +2,9 @@ import os
 import pandas as pd
 import cv2
 import torch
-from transformers import BeitImageProcessor, BeitForImageClassification, BeitConfig, BeitModel
+from transformers import (
+    BeitImageProcessor, BeitForImageClassification, BeitConfig, BeitModel
+)
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
@@ -12,6 +14,7 @@ from transformers import DataCollatorWithPadding
 from transformers import AdamW
 from transformers import get_linear_schedule_with_warmup
 
+# Use cuda if available
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
@@ -38,66 +41,115 @@ class MeldVideoDataset(Dataset):
         """
         Get the length of the dataset.
     
-        This method returns the number of samples in the dataset, which is determined by the length
-        of the underlying DataFrame.
-    
         Returns:
         - int: The number of samples in the dataset.
         """
         return len(self.dataframe)
     
-    def __getitem__(self, idx):
-        """
-        Retrieve a sample from the dataset at the specified index.
+    def extract_info(self, idx):
+    """
+    Extract relevant information from the dataset at the specified
+    index.
+
+    Parameters:
+    - idx (int): The index of the sample to retrieve.
+
+    Returns:
+    - tuple: A tuple containing dialogue_id, utterance_id, and emotion.
+    """
+    dialogue_id = self.dataframe.iloc[idx]["Dialogue_ID"]
+    utterance_id = self.dataframe.iloc[idx]["Utterance_ID"]
+    emotion = self.dataframe.iloc[idx]["Emotion"]
+    return dialogue_id, utterance_id, emotion
+
+
+def construct_video_file_path(self, dialogue_id, utterance_id):
+    """
+    Construct the file path for the video based on dialogue_id and
+    utterance_id.
+
+    Parameters:
+    - dialogue_id (str): The dialogue ID.
+    - utterance_id (str): The utterance ID.
+
+    Returns:
+    - str: The constructed video file path.
+    """
+    return os.path.join(
+        self.video_folder, f"dia{dialogue_id}_utt{utterance_id}.mp4"
+    )
+
+
+def load_video_embeddings(self, video_file_path):
+    """
+    Load and process video embeddings from the specified video file
+    path.
+
+    Parameters:
+    - video_file_path (str): The file path of the video.
+
+    Returns:
+    - torch.Tensor: The video embeddings represented as a PyTorch
+        tensor.
+    """
+    cap = cv2.VideoCapture(video_file_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames = []
+    for i in range(0, total_frames, self.frames_to_sample):
+        cap.set(1, i)
+        ret, frame = cap.read()
+        if ret:
+            frames.append(frame)
+
+    embeddings = []
+    for frame in frames:
+        inputs = self.processor(frame, return_tensors="pt")
+        embeddings.append(inputs['pixel_values'].squeeze())
+
+    video_embedding = torch.mean(torch.stack(embeddings), dim=0)
+    return video_embedding
+
+def handle_corrupted_file(self, idx):
+    """
+    Handles a corrupted audio file by skipping it and moving to the
+    next item.
+
+    Parameters:
+    - idx (int): The index of the corrupted audio file.
+
+    Returns:
+    - dict: The next item in the dataset.
+    """
+    print(f"File {audio_file_path} is corrupted. Skipping...")
+    return self.__getitem__(idx + 1 if idx + 1 < len(self) else 0)
+
+def __getitem__(self, idx):
+    """
+    Retrieve a sample from the dataset at the specified index.
+
+    Parameters:
+    - idx (int): The index of the sample to retrieve.
+
+    Returns:
+    - dict: A dictionary containing the following keys:
+        - "pixel_values": The video embedding represented as a
+            PyTorch tensor.
+        - "label": The index of the emotion label mapped from the
+            dataset.
+    """
+    dialogue_id, utterance_id, emotion = self.extract_info(idx)
+    video_file_path = self.construct_video_file_path(
+        dialogue_id, utterance_id
+    )
     
-        This method retrieves a sample from the dataset at the specified index.
-        It loads the corresponding video file, samples frames, extracts embeddings
-        for each frame, and computes the mean embedding for the video segment.
-        Additionally, it maps the emotion label to its corresponding index.
-    
-        Parameters:
-        - idx (int): The index of the sample to retrieve.
-    
-        Returns:
-        - dict: A dictionary containing the following keys:
-            - "pixel_values": The video embedding represented as a PyTorch tensor.
-            - "label": The index of the emotion label mapped from the dataset.
-        """
-        dialogue_id = self.dataframe.iloc[idx]["Dialogue_ID"]
-        utterance_id = self.dataframe.iloc[idx]["Utterance_ID"]
-        emotion = self.dataframe.iloc[idx]["Emotion"]
-        video_file_path = os.path.join(
-            self.video_folder,
-            f"dia{dialogue_id}_utt{utterance_id}.mp4"
-        )
-        
-        try: 
-            cap = cv2.VideoCapture(video_file_path)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-            frames = []
-            for i in range(0, total_frames, self.frames_to_sample):
-                cap.set(1, i)
-                ret, frame = cap.read()
-                if ret:
-                    frames.append(frame)
-
-            embeddings = []
-            for frame in frames:
-                inputs = self.processor(frame, return_tensors="pt")
-                embeddings.append(inputs['pixel_values'].squeeze())
-
-            video_embedding = torch.mean(torch.stack(embeddings), dim=0)
-        
-            return {
-                "pixel_values": video_embedding,
-                "label": self.emotion_mapping[emotion]
-            }
-        except RuntimeError:
-            print(f"File {video_file_path} is corrupted. Skipping...")
-            # Recursively call the next item
-            return self.__getitem__(idx + 1 if idx + 1 < len(self) else 0)
-
+    try: 
+        video_embedding = self.load_video_embeddings(video_file_path)
+        return {
+            "pixel_values": video_embedding,
+            "label": self.emotion_mapping[emotion]
+        }
+    except RuntimeError:
+        return self.handle_corrupted_file(idx)
 
     
 class VideoClassification(nn.Module):
@@ -114,7 +166,7 @@ class VideoClassification(nn.Module):
             nn.Linear(128, 1),
             nn.Softmax(dim=1)
         )
-        # Add a classification layer on top
+        # Add classification layer
         self.classifier = nn.Linear(
             self.beit.config.hidden_size,
             num_labels
@@ -123,22 +175,22 @@ class VideoClassification(nn.Module):
     def forward(self, pixel_values, labels=None):
         """
         Forward pass through the model.
-    
-        This method takes pixel values as input and performs a forward pass through the model.
-        It extracts features from images using BEiT, computes attention weights, applies attention
-        weights to features, and passes the attended features through a classification layer.
-        Optionally, it computes the loss if labels are provided.
-    
+
         Parameters:
-        - pixel_values (torch.Tensor): The input pixel values of images.
-        - labels (torch.Tensor or None): The target labels for classification. Default is None.
+        - pixel_values (torch.Tensor): The input pixel values of
+            images.
+        - labels (torch.Tensor or None): The target labels for
+            classification. Default is None.
     
         Returns:
         - If labels are provided:
-            - loss (torch.Tensor): The computed loss using cross-entropy.
-            - logits (torch.Tensor): The output logits from the classifier.
+            - loss (torch.Tensor): The computed loss using
+                cross-entropy.
+            - logits (torch.Tensor): The output logits from the
+                classifier.
         - If labels are not provided:
-            - logits (torch.Tensor): The output logits from the classifier.
+            - logits (torch.Tensor): The output logits from the
+                classifier.
         """
         # Extract features from images
         outputs = self.beit(pixel_values=pixel_values)
@@ -156,7 +208,7 @@ class VideoClassification(nn.Module):
         #pooled = features.mean(dim=1)
 
         # Classification layer
-        logits = self.classifier(attended_features) #pooled
+        logits = self.classifier(attended_features) 
         
         # Compute the loss if labels are provided
         loss = None
@@ -195,6 +247,7 @@ model = VideoClassification(
 )
 model = model
 
+# Training setup
 training_args = TrainingArguments(
     output_dir="./results_meld_vid",
     evaluation_strategy="epoch",
@@ -206,6 +259,7 @@ training_args = TrainingArguments(
     logging_steps=10,
 )
 
+# Init optimizer
 optimizer = AdamW(
     model.parameters(),
     lr=1e-4,
@@ -220,6 +274,7 @@ lr_scheduler = get_linear_schedule_with_warmup(
     num_training_steps=num_training_steps
 )
 
+# Init Trainer
 trainer = Trainer(
     model=model,
     args=training_args,
